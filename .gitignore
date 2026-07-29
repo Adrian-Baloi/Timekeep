@@ -12,3 +12,6 @@ captures/
 # Local auth overrides should stay out of source control.
 *.keystore
 secrets.properties
+
+# JVM heap dumps are local diagnostics and must not be committed.
+*.hprof
