@@ -1,4 +1,4 @@
-package com.example.timekeep_work
+package com.example.timekeep_work.screen
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -22,21 +22,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-
-private object SignedOutPalette {
-    val Background = Color(0xFFF4F6F8)
-    val Surface = Color(0xFFFFFFFF)
-    val Border = Color(0xFFD7DCE2)
-    val TextPrimary = Color(0xFF17212B)
-    val TextSecondary = Color(0xFF59636E)
-    val Primary = Color(0xFF173B5E)
-    val OnPrimary = Color(0xFFFFFFFF)
-}
+import com.example.timekeep_work.Header
+import com.example.timekeep_work.ui.theme.AppUIPalette
 
 @Composable
 fun SignedOutScreen(
@@ -46,7 +37,7 @@ fun SignedOutScreen(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(SignedOutPalette.Background)
+            .background(AppUIPalette.Background)
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .padding(horizontal = 24.dp, vertical = 20.dp),
     ) {
@@ -67,32 +58,6 @@ fun SignedOutScreen(
 }
 
 @Composable
-private fun Header(modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(
-            text = "Asset Scanner",
-            color = SignedOutPalette.TextPrimary,
-            fontFamily = FontFamily.SansSerif,
-            fontSize = 20.sp,
-            lineHeight = 26.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-
-        Spacer(modifier = Modifier.height(2.dp))
-
-        Text(
-            text = "HALO ITSM",
-            color = SignedOutPalette.TextSecondary,
-            fontFamily = FontFamily.SansSerif,
-            fontSize = 11.sp,
-            lineHeight = 16.sp,
-            fontWeight = FontWeight.Medium,
-            letterSpacing = 1.1.sp,
-        )
-    }
-}
-
-@Composable
 private fun SignInPanel(
     onSignInClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -100,9 +65,9 @@ private fun SignInPanel(
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(16.dp),
-        color = SignedOutPalette.Surface,
-        contentColor = SignedOutPalette.TextPrimary,
-        border = BorderStroke(1.dp, SignedOutPalette.Border),
+        color = AppUIPalette.Surface,
+        contentColor = AppUIPalette.TextPrimary,
+        border = BorderStroke(1.dp, AppUIPalette.Border),
         tonalElevation = 0.dp,
         shadowElevation = 0.dp,
     ) {
@@ -112,7 +77,7 @@ private fun SignInPanel(
         ) {
             Text(
                 text = "Sign in",
-                color = SignedOutPalette.TextPrimary,
+                color = AppUIPalette.TextPrimary,
                 fontFamily = FontFamily.SansSerif,
                 fontSize = 28.sp,
                 lineHeight = 34.sp,
@@ -123,7 +88,7 @@ private fun SignInPanel(
 
             Text(
                 text = "Use your Halo ITSM account.",
-                color = SignedOutPalette.TextSecondary,
+                color = AppUIPalette.TextSecondary,
                 fontFamily = FontFamily.SansSerif,
                 fontSize = 15.sp,
                 lineHeight = 22.sp,
@@ -139,8 +104,8 @@ private fun SignInPanel(
                     .height(52.dp),
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = SignedOutPalette.Primary,
-                    contentColor = SignedOutPalette.OnPrimary,
+                    containerColor = AppUIPalette.Primary,
+                    contentColor = AppUIPalette.OnPrimary,
                 ),
                 contentPadding = PaddingValues(horizontal = 20.dp),
             ) {
