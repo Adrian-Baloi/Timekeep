@@ -14,15 +14,12 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -46,7 +43,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.example.timekeep_work.Agent
 import com.example.timekeep_work.Asset
 import com.example.timekeep_work.Header
@@ -82,20 +78,40 @@ internal fun ManualSerialEntryScreen(
 }
 
 @Composable
+internal fun ScanningScreen(
+    agent: Agent,
+    onCancel: () -> Unit,
+    onSerialDetected: () -> Unit,
+) = WorkflowPage(agent, "Scan device", "Point the camera at the serial label.") {
+    Panel(horizontalAlignment = Alignment.CenterHorizontally) {
+        CircularProgressIndicator(color = AppUIPalette.Primary, modifier = Modifier.size(48.dp))
+        Spacer(Modifier.height(20.dp))
+        Text("Waiting for a barcode or QR code", style = sectionStyle())
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "Camera integration is simulated in this prototype.",
+            style = bodyStyle(),
+            color = AppUIPalette.TextSecondary,
+        )
+        Spacer(Modifier.height(24.dp))
+        PrimaryButton("Use demo scan", onSerialDetected)
+        SecondaryButton("Cancel", onCancel)
+    }
+}
+
+@Composable
 internal fun SearchingScreen(
     agent: Agent,
     serial: String,
     onCancel: () -> Unit,
-    onShowFakeResult: () -> Unit,
 ) = WorkflowPage(agent, "Searching Halo ITSM", "Looking for serial number") {
     Panel(horizontalAlignment = Alignment.CenterHorizontally) {
         CircularProgressIndicator(color = AppUIPalette.Primary, modifier = Modifier.size(48.dp))
         Spacer(Modifier.height(20.dp))
         SerialNumber(serial)
         Spacer(Modifier.height(12.dp))
-        Text("This demo waits for you so the searching state can be reviewed.", style = bodyStyle(), color = AppUIPalette.TextSecondary)
-        Spacer(Modifier.height(24.dp))
-        PrimaryButton("Show fake result", onShowFakeResult)
+        Text("The lookup continues while this screen is active.", style = bodyStyle(), color = AppUIPalette.TextSecondary)
+        Spacer(Modifier.height(16.dp))
         SecondaryButton("Cancel", onCancel)
     }
 }
@@ -134,24 +150,20 @@ internal fun OneMatchingAssetScreen(
 internal fun MultipleAssetsScreen(
     agent: Agent,
     assets: List<Asset>,
-    onSelect: (Asset) -> Unit,
+    onSelect: (Int) -> Unit,
     onScanAgain: () -> Unit,
 ) = WorkflowPage(agent, "Choose the correct asset", "${assets.size} assets share this serial. Compare the details.") {
     assets.forEach { asset ->
-        CandidateAsset(asset, onClick = { onSelect(asset) })
+        CandidateAsset(asset, onClick = { onSelect(asset.id) })
         Spacer(Modifier.height(12.dp))
     }
     SecondaryButton("None are correct — scan again", onScanAgain)
 }
 
 @Composable
-internal fun AssetDetailsScreen(
-    agent: Agent,
+private fun AssetDetailsPanel(
     asset: Asset,
-    onBack: () -> Unit,
-    onScanAgain: () -> Unit,
-    onReviewed: () -> Unit,
-) = WorkflowPage(agent, "Asset details", "Confirm this is the device in front of you.") {
+) {
     Panel {
         SerialNumber(asset.serialNumber)
         Spacer(Modifier.height(20.dp))
@@ -163,12 +175,6 @@ internal fun AssetDetailsScreen(
         DetailRow("Location", asset.location)
         DetailRow("Halo asset ID", asset.id.toString())
     }
-    Spacer(Modifier.height(16.dp))
-    Notice("Management actions stay locked until you confirm this review.", Color(0xFFE7F0F8), AppUIPalette.Primary)
-    Spacer(Modifier.height(16.dp))
-    PrimaryButton("I've reviewed this asset", onReviewed)
-    SecondaryButton("Wrong asset — scan again", onScanAgain)
-    TextButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back to result") }
 }
 
 @Composable
@@ -177,14 +183,16 @@ internal fun ManagementActionScreen(
     asset: Asset,
     selectedStatus: String,
     reviewed: Boolean,
+    updating: Boolean,
     onStatusChange: (String) -> Unit,
     onReviewedChange: (Boolean) -> Unit,
     onBack: () -> Unit,
     onContinue: () -> Unit,
     confirmation: ConfirmationState? = null,
 ) {
-    WorkflowPage(agent, "Management action", "Choose the intended change for this asset.") {
-        AssetSummary(asset, compact = true)
+    WorkflowPage(agent, "Asset details", "Confirm this is the device in front of you.") {
+        AssetDetailsPanel(asset)
+        Title("Management action", "Choose the intended change for this asset.")
         Spacer(Modifier.height(16.dp))
         Panel {
             Text("Change status to", style = sectionStyle())
@@ -205,7 +213,11 @@ internal fun ManagementActionScreen(
             }
         }
         Spacer(Modifier.height(16.dp))
-        PrimaryButton("Review change", onContinue, enabled = reviewed)
+        PrimaryButton(
+            label = if (updating) "Updating…" else "Review change",
+            onClick = onContinue,
+            enabled = reviewed && !updating,
+        )
         if (!reviewed) {
             Text(
                 "Review confirmation is required before write actions are enabled.",
@@ -233,6 +245,19 @@ internal fun ManagementActionScreen(
             confirmButton = { Button(onClick = confirmation.onConfirm) { Text("Confirm update") } },
             dismissButton = { TextButton(onClick = confirmation.onDismiss) { Text("Go back") } },
         )
+    }
+}
+
+@Composable
+internal fun AssetLoadingScreen(
+    agent: Agent,
+    assetId: Int,
+    onBack: () -> Unit,
+) = WorkflowPage(agent, "Loading asset", "Retrieving asset $assetId from the data source.") {
+    Panel(horizontalAlignment = Alignment.CenterHorizontally) {
+        CircularProgressIndicator(color = AppUIPalette.Primary, modifier = Modifier.size(48.dp))
+        Spacer(Modifier.height(20.dp))
+        SecondaryButton("Back", onBack)
     }
 }
 
@@ -315,14 +340,22 @@ private fun WorkflowPage(
         Header()
         Spacer(Modifier.height(14.dp))
         IdentityBanner(agent)
+        Title(title, subtitle)
+        content()
+        Spacer(Modifier.height(72.dp))
+    }
+}
+
+@Composable
+private fun Title(
+    title: String,
+    subtitle: String,
+) {
         Spacer(Modifier.height(22.dp))
         Text(title, style = titleStyle())
         Spacer(Modifier.height(4.dp))
         Text(subtitle, style = bodyStyle(), color = AppUIPalette.TextSecondary)
         Spacer(Modifier.height(18.dp))
-        content()
-        Spacer(Modifier.height(72.dp))
-    }
 }
 
 @Composable
@@ -440,43 +473,6 @@ private fun SecondaryButton(label: String, onClick: () -> Unit) {
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.dp, AppUIPalette.Primary),
     ) { Text(label, color = AppUIPalette.Primary, fontWeight = FontWeight.SemiBold) }
-}
-
-@Composable
-internal fun FakeStatePicker(
-    current: AppScreen,
-    onDismiss: () -> Unit,
-    onSelect: (AppScreen) -> Unit,
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            modifier = Modifier.fillMaxWidth().widthIn(max = 420.dp),
-            shape = RoundedCornerShape(18.dp),
-            color = AppUIPalette.Surface,
-        ) {
-            Column(Modifier.padding(20.dp)) {
-                Text("Fake UI states", style = titleStyle())
-                Text("Open any screen without networking.", style = bodyStyle(), color = AppUIPalette.TextSecondary)
-                Spacer(Modifier.height(12.dp))
-                LazyColumn(modifier = Modifier.heightIn(max = 520.dp)) {
-                    items(AppScreen.entries) { destination ->
-                        TextButton(
-                            onClick = { onSelect(destination) },
-                            modifier = Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-                        ) {
-                            Text(
-                                text = if (destination == current) "• ${destination.title}" else destination.title,
-                                modifier = Modifier.fillMaxWidth(),
-                                color = AppUIPalette.TextPrimary,
-                            )
-                        }
-                    }
-                }
-                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("Close") }
-            }
-        }
-    }
 }
 
 private fun titleStyle() = androidx.compose.ui.text.TextStyle(
