@@ -1,10 +1,11 @@
 package com.example.timekeep_work
 
 import com.example.timekeep_work.data.AssetRepository
+import com.example.timekeep_work.data.AssetDataError
+import com.example.timekeep_work.data.AssetRepositoryException
 import com.example.timekeep_work.screen.AssetUiState
 import com.example.timekeep_work.screen.AssetViewModel
 import com.example.timekeep_work.screen.ManagementPhase
-import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -35,7 +36,7 @@ class AssetViewModelTest {
 
     @Test
     fun `lookup publishes no match, multiple matches, and selected asset states`() = runTest {
-        val repository = FakeAssetRepository()
+        val repository = RecordingAssetRepository()
         val viewModel = AssetViewModel(repository)
 
         repository.searchResults = emptyList()
@@ -55,7 +56,7 @@ class AssetViewModelTest {
 
     @Test
     fun `confirm update delegates to repository and publishes immutable success state`() = runTest {
-        val repository = FakeAssetRepository(searchResults = listOf(assets.first()))
+        val repository = RecordingAssetRepository(searchResults = listOf(assets.first()))
         val viewModel = AssetViewModel(repository)
 
         viewModel.onSerialSubmitted(assets.first().serialNumber)
@@ -70,7 +71,8 @@ class AssetViewModelTest {
         viewModel.onConfirmUpdate()
         advanceUntilIdle()
 
-        assertEquals(assets.first().id to "Repair", repository.lastUpdate)
+        assertEquals(assets.first().id, repository.lastUpdate?.assetId)
+        assertEquals("Repair", repository.lastUpdate?.statusName)
         assertEquals(ManagementPhase.Success, viewModel.managementUiState.value.phase)
         val state = viewModel.uiState.value
         assertTrue(state is AssetUiState.MatchFound)
@@ -80,7 +82,7 @@ class AssetViewModelTest {
 
     @Test
     fun `retry repeats a retryable failed lookup`() = runTest {
-        val repository = FakeAssetRepository(
+        val repository = RecordingAssetRepository(
             searchResults = listOf(assets.first()),
             failNextSearch = true,
         )
@@ -103,27 +105,48 @@ class AssetViewModelTest {
         assertFalse(repository.failNextSearch)
     }
 
-    private class FakeAssetRepository(
+    @Test
+    fun `unexpected repository details are not shown to technicians`() = runTest {
+        val repository = RecordingAssetRepository(
+            searchFailure = IllegalStateException("server stack trace and database details"),
+        )
+        val viewModel = AssetViewModel(repository)
+
+        viewModel.onSerialSubmitted("SERIAL")
+        advanceUntilIdle()
+
+        assertEquals(
+            AssetUiState.Failure(
+                message = "The asset search failed.",
+                retryable = false,
+            ),
+            viewModel.uiState.value,
+        )
+    }
+
+    private class RecordingAssetRepository(
         var searchResults: List<Asset> = emptyList(),
         var failNextSearch: Boolean = false,
+        var searchFailure: Throwable? = null,
     ) : AssetRepository {
         var searchCount = 0
-        var lastUpdate: Pair<Int, String>? = null
+        var lastUpdate: AssetUpdate? = null
 
-        override suspend fun findAssets(identifier: String): List<Asset> {
+        override suspend fun findByIdentifier(identifier: String): List<Asset> {
             searchCount += 1
+            searchFailure?.let { throw it }
             if (failNextSearch) {
                 failNextSearch = false
-                throw IOException("Offline")
+                throw AssetRepositoryException(AssetDataError.NoNetwork)
             }
             return searchResults
         }
 
-        override suspend fun getAsset(assetId: Int): Asset? = assets.firstOrNull { it.id == assetId }
-
-        override suspend fun updateStatus(assetId: Int, status: String): Asset {
-            lastUpdate = assetId to status
-            return assets.first { it.id == assetId }.copy(status = status)
+        override suspend fun updateAsset(request: AssetUpdate): Asset {
+            lastUpdate = request
+            return assets.first { it.id == request.assetId }.copy(
+                status = request.statusName,
+            )
         }
     }
 

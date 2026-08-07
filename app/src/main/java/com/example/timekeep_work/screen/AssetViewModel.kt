@@ -3,9 +3,10 @@ package com.example.timekeep_work.screen
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.timekeep_work.Asset
+import com.example.timekeep_work.AssetUpdate
+import com.example.timekeep_work.data.AppDependencies
+import com.example.timekeep_work.data.AssetRepositoryException
 import com.example.timekeep_work.data.AssetRepository
-import com.example.timekeep_work.data.DemoAssetRepository
-import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,7 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class AssetViewModel(
-    private val repository: AssetRepository = DemoAssetRepository(),
+    private val repository: AssetRepository = AppDependencies.assetRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow<AssetUiState>(AssetUiState.Ready)
     val uiState: StateFlow<AssetUiState> = _uiState.asStateFlow()
@@ -160,7 +161,14 @@ class AssetViewModel(
             failure = null,
         )
         updateJob = viewModelScope.launch {
-            runCatching { repository.updateStatus(assetId, state.selectedStatus) }
+            runCatching {
+                repository.updateAsset(
+                    AssetUpdate(
+                        assetId = assetId,
+                        statusName = state.selectedStatus,
+                    ),
+                )
+            }
                 .onSuccess { updatedAsset ->
                     failedOperation = null
                     _uiState.value = AssetUiState.MatchFound(updatedAsset)
@@ -210,7 +218,7 @@ class AssetViewModel(
         failedOperation = null
         _uiState.value = AssetUiState.Searching
         lookupJob = viewModelScope.launch {
-            runCatching { repository.findAssets(identifier).toList() }
+            runCatching { repository.findByIdentifier(identifier).toList() }
                 .onSuccess { assets ->
                     lastCandidates = assets
                     failedOperation = null
@@ -228,9 +236,19 @@ class AssetViewModel(
         lookupJob?.cancel()
         lastRequestedAssetId = assetId
         failedOperation = null
+        val identifier = lastIdentifier
+        if (identifier == null) {
+            _uiState.value = AssetUiState.Failure(
+                message = "The asset could not be loaded. Scan or search for it again.",
+                retryable = false,
+            )
+            return
+        }
         _uiState.value = AssetUiState.Searching
         lookupJob = viewModelScope.launch {
-            runCatching { repository.getAsset(assetId) }
+            runCatching {
+                repository.findByIdentifier(identifier).firstOrNull { it.id == assetId }
+            }
                 .onSuccess { asset ->
                     if (asset == null) {
                         failedOperation = FailedOperation.LoadAsset
@@ -274,9 +292,10 @@ class AssetViewModel(
     }
 
     private fun Throwable.toFailure(fallbackMessage: String): AssetUiState.Failure {
+        val appError = (this as? AssetRepositoryException)?.error
         return AssetUiState.Failure(
-            message = message?.takeIf(String::isNotBlank) ?: fallbackMessage,
-            retryable = this is IOException || this !is IllegalArgumentException,
+            message = appError?.technicianMessage ?: fallbackMessage,
+            retryable = appError?.retryable ?: false,
         )
     }
 
