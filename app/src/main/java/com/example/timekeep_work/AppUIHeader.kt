@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.timekeep_work.ui.theme.AppUIPalette
 
+/** Shared product heading used across authenticated and signed-out screens. */
 @Composable
 public fun Header(modifier: Modifier = Modifier) {
     Column(modifier = modifier) {

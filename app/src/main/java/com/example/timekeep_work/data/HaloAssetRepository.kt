@@ -1,11 +1,20 @@
 package com.example.timekeep_work.data
 
 import com.example.timekeep_work.Asset
+import com.example.timekeep_work.AssignableUser
+import com.example.timekeep_work.AssetSite
+import com.example.timekeep_work.AssetManagementSites
 import com.example.timekeep_work.AssetUpdate
+import com.example.timekeep_work.auth.AuthenticationRequiredException
 import com.example.timekeep_work.network.AccessTokenProvider
+import com.example.timekeep_work.network.FreshAccessTokenProvider
 import com.example.timekeep_work.network.HaloApi
-import com.example.timekeep_work.network.dto.decodeAssetList
-import com.example.timekeep_work.network.dto.decodeUpdatedAsset
+import com.example.timekeep_work.network.dto.decodeAssetPage
+import com.example.timekeep_work.network.dto.decodeSitePage
+import com.example.timekeep_work.network.dto.decodeUserPage
+import com.example.timekeep_work.network.dto.matchesIdentifier
+import com.example.timekeep_work.network.dto.toAssetSite
+import com.example.timekeep_work.network.dto.toAssignableUser
 import com.example.timekeep_work.network.dto.toAppModel
 import com.example.timekeep_work.network.dto.toHaloDto
 import java.io.IOException
@@ -18,58 +27,142 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import retrofit2.HttpException
 
+/**
+ * Halo-backed implementation of [AssetRepository].
+ *
+ * List operations page defensively, deduplicate by Halo id, and stop if Halo repeats a page.
+ * All transport and schema failures are translated into the small error vocabulary used by
+ * the UI.
+ */
 class HaloAssetRepository(
     private val api: HaloApi,
     private val json: Json,
     private val accessTokenProvider: AccessTokenProvider,
+    private val freshAccessTokenProvider: FreshAccessTokenProvider = FreshAccessTokenProvider {
+        accessTokenProvider.accessToken() ?: throw AuthenticationRequiredException()
+    },
 ) : AssetRepository {
     override suspend fun findByIdentifier(identifier: String): List<Asset> {
         val normalized = identifier.trim()
         if (normalized.isBlank()) {
             throw AssetRepositoryException(AssetDataError.ValidationFailure)
         }
-        requireAuthenticatedSession()
         return translateFailures {
-            val matchesById = linkedMapOf<Int, Asset>()
-            val seenAssetIds = mutableSetOf<Int>()
-            var pageNumber = 1
-            while (pageNumber <= MAX_SEARCH_PAGES) {
-                val page = json.decodeAssetList(
-                    api.findAssets(
-                        identifier = normalized,
-                        pageSize = SEARCH_PAGE_SIZE,
-                        pageNumber = pageNumber,
-                    ),
-                ).map { it.toAppModel() }
-                val newAssetSeen = page.map { seenAssetIds.add(it.id) }.any { it }
-                page.filter { it.matches(normalized) }
-                    .forEach { asset -> matchesById[asset.id] = asset }
+            authenticatedCall {
+                // Halo's search is broad; exact matching here avoids showing loosely related assets.
+                val matchesById = linkedMapOf<Int, Asset>()
+                val seenAssetIds = mutableSetOf<Int>()
+                var pageNumber = 1
+                while (pageNumber <= MAX_SEARCH_PAGES) {
+                    val page = json.decodeAssetPage(
+                        api.findAssets(
+                            identifier = normalized,
+                            pageSize = SEARCH_PAGE_SIZE,
+                            pageNumber = pageNumber,
+                        ),
+                    )
+                    val pageAssetIds = page.assets.map { dto ->
+                        dto.id?.takeIf { it > 0 }
+                            ?: throw SerializationException("Halo asset response has no valid id.")
+                    }
+                    val newAssetSeen = pageAssetIds.map(seenAssetIds::add).any { it }
+                    page.assets
+                        .filter { it.matchesIdentifier(normalized) }
+                        .map { it.toAppModel(matchedIdentifier = normalized) }
+                        .forEach { asset -> matchesById[asset.id] = asset }
 
-                if (page.size < SEARCH_PAGE_SIZE || !newAssetSeen) {
-                    break
+                    val reachedReportedEnd = pageNumber.toLong() * SEARCH_PAGE_SIZE >= page.recordCount
+                    if (page.assets.size < SEARCH_PAGE_SIZE || reachedReportedEnd || !newAssetSeen) {
+                        break
+                    }
+                    pageNumber += 1
                 }
-                pageNumber += 1
+                matchesById.values.toList()
             }
-            matchesById.values.toList()
         }
     }
 
-    override suspend fun updateAsset(request: AssetUpdate): Asset {
-        if (!request.hasChanges) {
+    override suspend fun searchAssignableUsers(query: String): List<AssignableUser> {
+        val normalized = query.trim()
+        if (normalized.length < MIN_USER_QUERY_LENGTH) {
             throw AssetRepositoryException(AssetDataError.ValidationFailure)
         }
-        requireAuthenticatedSession()
         return translateFailures {
-            json.decodeUpdatedAsset(api.updateAsset(listOf(request.toHaloDto()))).toAppModel()
+            authenticatedCall {
+                val usersById = linkedMapOf<Int, AssignableUser>()
+                val seenUserIds = mutableSetOf<Int>()
+                var pageNumber = 1
+                while (pageNumber <= MAX_USER_SEARCH_PAGES) {
+                    val page = json.decodeUserPage(
+                        api.searchAssignableUsers(
+                            query = normalized,
+                            pageSize = USER_SEARCH_PAGE_SIZE,
+                            pageNumber = pageNumber,
+                        ),
+                    )
+                    val newUserSeen = page.users.mapNotNull { it.id }.map(seenUserIds::add).any { it }
+                    page.users.mapNotNull { it.toAssignableUser() }.forEach { user -> usersById[user.id] = user }
+
+                    val reachedReportedEnd = pageNumber.toLong() * USER_SEARCH_PAGE_SIZE >= page.recordCount
+                    if (page.users.size < USER_SEARCH_PAGE_SIZE || reachedReportedEnd || !newUserSeen) break
+                    pageNumber += 1
+                }
+                usersById.values.toList()
+            }
         }
     }
 
-    private fun requireAuthenticatedSession() {
-        if (accessTokenProvider.accessToken().isNullOrBlank()) {
-            throw AssetRepositoryException(AssetDataError.Unauthenticated)
+    override suspend fun getActiveSites(): List<AssetSite> = translateFailures {
+        authenticatedCall {
+            val sitesById = linkedMapOf<Int, AssetSite>()
+            val seenSiteIds = mutableSetOf<Int>()
+            var pageNumber = 1
+            while (pageNumber <= MAX_SITE_PAGES) {
+                val page = json.decodeSitePage(
+                    api.getActiveSites(
+                        pageSize = SITE_PAGE_SIZE,
+                        pageNumber = pageNumber,
+                    ),
+                )
+                val newSiteSeen = page.sites.mapNotNull { it.id }.map(seenSiteIds::add).any { it }
+                page.sites.mapNotNull { it.toAssetSite() }.forEach { site -> sitesById[site.id] = site }
+
+                val reachedReportedEnd = pageNumber.toLong() * SITE_PAGE_SIZE >= page.recordCount
+                if (page.sites.size < SITE_PAGE_SIZE || reachedReportedEnd || !newSiteSeen) break
+                pageNumber += 1
+            }
+            AssetManagementSites.restrict(sitesById.values)
         }
     }
 
+    override suspend fun updateAsset(request: AssetUpdate) {
+        translateFailures {
+            authenticatedCall {
+                api.updateAsset(listOf(request.toHaloDto()))
+            }
+        }
+    }
+
+    /** Runs a protected call and retries it once after a forced token refresh on HTTP 401. */
+    private suspend fun <T> authenticatedCall(block: suspend () -> T): T {
+        freshAccessTokenProvider.accessToken(false)
+        return try {
+            block()
+        } catch (error: HttpException) {
+            if (error.code() != 401) throw error
+            freshAccessTokenProvider.accessToken(true)
+            try {
+                block()
+            } catch (retryError: HttpException) {
+                if (retryError.code() == 401) {
+                    throw AssetRepositoryException(AssetDataError.AuthorizationRejected, retryError)
+                }
+                throw retryError
+            }
+        }
+    }
+
+    /** Preserves coroutine cancellation while converting operational failures for the UI. */
     private suspend fun <T> translateFailures(block: suspend () -> T): T = try {
         block()
     } catch (error: CancellationException) {
@@ -80,19 +173,21 @@ class HaloAssetRepository(
         throw error.toRepositoryException()
     }
 
-    private fun Asset.matches(identifier: String): Boolean =
-        serialNumber.equals(identifier, ignoreCase = true) ||
-            assetTag.equals(identifier, ignoreCase = true) ||
-            hostname.equals(identifier, ignoreCase = true)
-
     private companion object {
         const val SEARCH_PAGE_SIZE = 50
         const val MAX_SEARCH_PAGES = 20
+        const val MIN_USER_QUERY_LENGTH = 4
+        const val USER_SEARCH_PAGE_SIZE = 25
+        const val MAX_USER_SEARCH_PAGES = 20
+        const val SITE_PAGE_SIZE = 100
+        const val MAX_SITE_PAGES = 20
     }
 }
 
+/** Maps implementation-specific failures to the repository's stable error contract. */
 private fun Throwable.toRepositoryException(): AssetRepositoryException {
     val category = when (this) {
+        is AuthenticationRequiredException -> AssetDataError.Unauthenticated
         is SocketTimeoutException -> AssetDataError.Timeout
         is UnknownHostException,
         is ConnectException,

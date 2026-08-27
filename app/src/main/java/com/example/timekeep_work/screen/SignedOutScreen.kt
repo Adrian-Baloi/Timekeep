@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import com.example.timekeep_work.Header
 import com.example.timekeep_work.ui.theme.AppUIPalette
 
+/** Sign-in landing screen shown when no valid Halo session is available. */
 @Composable
 fun SignedOutScreen(
     onSignInClick: () -> Unit,

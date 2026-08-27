@@ -4,65 +4,118 @@ import com.example.timekeep_work.Asset
 import com.example.timekeep_work.AssetUpdate
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
 
-fun HaloAssetDto.toAppModel(): Asset {
+data class HaloAssetPage(
+    val pageNumber: Int,
+    val pageSize: Int,
+    val recordCount: Long,
+    val assets: List<HaloAssetDto>,
+)
+
+/**
+ * Maps tenant-configurable key fields into the app's stable asset fields.
+ * Labels are inspected instead of assuming key_field always means the same thing in every tenant.
+ */
+fun HaloAssetDto.toAppModel(matchedIdentifier: String? = null): Asset {
     val assetId = id?.takeIf { it > 0 }
         ?: throw SerializationException("Halo asset response has no valid id.")
-    val serial = firstText(serialNumber, serialNumberAlternative, keyField)
-        ?: throw SerializationException("Halo asset response has no serial identifier.")
+    val keyFields = keyFields()
+    val serial = keyFields.valueForLabel("serial")
+    val deviceName = keyFields.valueForLabel("hostname", "host name", "device name", "computer name")
+        ?: keyFields.firstValueExcept(serial)
+    val model = keyFields.valueForLabel("model") ?: itemName?.clean()
+    val lookupIdentifier = matchedIdentifier?.clean()
+        ?: serial
+        ?: inventoryNumber?.clean()
+        ?: keyFields.firstValueExcept(null)
+        ?: "Halo asset #$assetId"
     return Asset(
         id = assetId,
-        hostname = firstText(hostname, name),
+        hostname = deviceName,
         serialNumber = serial,
-        assetTag = firstText(assetTag, inventoryNumber),
-        manufacturer = firstText(manufacturerName, manufacturer),
-        model = firstText(modelName, assetTypeName),
-        assignedUser = firstText(username, userName),
-        status = statusName?.trim()?.takeIf(String::isNotEmpty),
-        location = firstText(siteName, locationName),
+        assetTag = inventoryNumber?.clean(),
+        manufacturer = manufacturerName?.clean(),
+        model = model,
+        assignedUser = username?.clean(),
+        status = statusName?.clean(),
+        location = siteName?.clean(),
+        lastUpdated = changeHistoryLastUpdated?.clean(),
+        matchedIdentifier = lookupIdentifier,
     )
 }
 
-fun AssetUpdate.toHaloDto(): HaloAssetUpdateDto = HaloAssetUpdateDto(
-    id = assetId,
-    hostname = hostname?.trim()?.takeIf(String::isNotEmpty),
-    serialNumber = serialNumber?.trim()?.takeIf(String::isNotEmpty),
-    assetTag = assetTag?.trim()?.takeIf(String::isNotEmpty),
-    assignedUserId = assignedUserId,
-    statusId = statusId,
-    statusName = statusName?.trim()?.takeIf(String::isNotEmpty),
-    locationId = locationId,
+/** Confirms an exact identifier match after Halo's broader server-side search. */
+fun HaloAssetDto.matchesIdentifier(identifier: String): Boolean =
+    identifierValues().any { it.equals(identifier, ignoreCase = true) }
+
+/** Converts a validated domain request into Halo's minimal Device update shape. */
+fun AssetUpdate.toHaloDto(): HaloAssetUpdateDto = when (this) {
+    is AssetUpdate.Deploy -> HaloAssetUpdateDto(
+        id = assetId,
+        siteId = site.id,
+        users = listOf(HaloAssetUserUpdateDto(user.id)),
+    )
+
+    is AssetUpdate.ReturnToInventory -> HaloAssetUpdateDto(
+        id = assetId,
+        siteId = site.id,
+        users = emptyList(),
+    )
+}
+
+/** Decodes a page and rejects incomplete non-empty responses before they reach the UI. */
+fun Json.decodeAssetPage(payload: JsonElement): HaloAssetPage {
+    val response = try {
+        decodeFromJsonElement<HaloAssetSearchResponseDto>(payload)
+    } catch (error: SerializationException) {
+        throw error
+    } catch (error: IllegalArgumentException) {
+        throw SerializationException("Halo asset search response did not match Device_View.", error)
+    }
+    val recordCount = response.recordCount?.takeIf { it >= 0 }
+        ?: throw SerializationException("Halo asset search response has no valid record_count.")
+    val pageNumber = response.pageNumber?.takeIf { it > 0 } ?: 1
+    val pageSize = response.pageSize?.takeIf { it > 0 } ?: response.assets?.size ?: 0
+    val assets = response.assets ?: if (recordCount == 0L) {
+        emptyList()
+    } else {
+        throw SerializationException("Halo asset search response omitted assets for a non-empty result.")
+    }
+    return HaloAssetPage(
+        pageNumber = pageNumber,
+        pageSize = pageSize,
+        recordCount = recordCount,
+        assets = assets,
+    )
+}
+
+private data class LabeledValue(
+    val label: String?,
+    val value: String,
 )
 
-fun Json.decodeAssetList(payload: JsonElement): List<HaloAssetDto> {
-    val elements = when (payload) {
-        is JsonArray -> payload
-        is JsonObject -> payload.firstArray("assets", "items", "records")
-            ?: if (payload.isExplicitlyEmpty()) JsonArray(emptyList()) else JsonArray(listOf(payload))
-        else -> throw SerializationException("Halo asset response is neither an object nor an array.")
-    }
-    return elements.map { decodeFromJsonElement<HaloAssetDto>(it) }
+private fun HaloAssetDto.keyFields(): List<LabeledValue> = listOf(
+    LabeledValue(keyFieldName.clean(), keyField.clean().orEmpty()),
+    LabeledValue(keyField2Name.clean(), keyField2.clean().orEmpty()),
+    LabeledValue(keyField3Name.clean(), keyField3.clean().orEmpty()),
+).filter { it.value.isNotEmpty() }
+
+private fun HaloAssetDto.identifierValues(): List<String> = buildList {
+    inventoryNumber.clean()?.let(::add)
+    keyField.clean()?.let(::add)
+    keyField2.clean()?.let(::add)
+    keyField3.clean()?.let(::add)
 }
 
-fun Json.decodeUpdatedAsset(payload: JsonElement): HaloAssetDto =
-    decodeAssetList(payload).firstOrNull()
-        ?: throw SerializationException("Halo asset update response is empty.")
-
-private fun JsonObject.firstArray(vararg names: String): JsonArray? =
-    names.firstNotNullOfOrNull { name -> this[name] as? JsonArray }
-
-private fun JsonObject.isExplicitlyEmpty(): Boolean {
-    if (isEmpty()) return true
-    val count = listOf("count", "record_count", "total").firstNotNullOfOrNull { name ->
-        (this[name] as? JsonPrimitive)?.content?.toIntOrNull()
+private fun List<LabeledValue>.valueForLabel(vararg expectedLabels: String): String? =
+    firstNotNullOfOrNull { field ->
+        val normalizedLabel = field.label?.lowercase() ?: return@firstNotNullOfOrNull null
+        field.value.takeIf { expectedLabels.any(normalizedLabel::contains) }
     }
-    return count == 0
-}
 
-private fun firstText(vararg values: String?): String? =
-    values.firstNotNullOfOrNull { value -> value?.trim()?.takeIf(String::isNotEmpty) }
+private fun List<LabeledValue>.firstValueExcept(excluded: String?): String? =
+    firstOrNull { !it.value.equals(excluded, ignoreCase = true) }?.value
+
+private fun String?.clean(): String? = this?.trim()?.takeIf(String::isNotEmpty)

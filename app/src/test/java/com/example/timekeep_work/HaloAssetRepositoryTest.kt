@@ -4,8 +4,11 @@ import com.example.timekeep_work.data.AssetDataError
 import com.example.timekeep_work.data.AssetRepositoryException
 import com.example.timekeep_work.data.HaloAssetRepository
 import com.example.timekeep_work.network.AccessTokenProvider
+import com.example.timekeep_work.network.FreshAccessTokenProvider
 import com.example.timekeep_work.network.HaloApi
 import com.example.timekeep_work.network.dto.HaloAssetUpdateDto
+import com.example.timekeep_work.network.dto.HaloAssetUserUpdateDto
+import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import kotlinx.coroutines.test.runTest
@@ -30,17 +33,24 @@ class HaloAssetRepositoryTest {
             findPayload = payload(
                 """
                 {
+                  "page_no": 1,
+                  "page_size": 50,
+                  "record_count": 1,
                   "assets": [
                     {
                       "id": 42,
-                      "hostname": "TOR-LT-42",
-                      "serial_number": "SERIAL-42",
                       "inventory_number": "TAG-42",
+                      "key_field": "SERIAL-42",
+                      "key_field_name": "Serial number",
+                      "key_field2": "TOR-LT-42",
+                      "key_field2_name": "Hostname",
+                      "key_field3": "ThinkPad T14 Gen 4",
+                      "key_field3_name": "Model",
                       "manufacturer_name": "Lenovo",
-                      "model_name": "ThinkPad",
                       "username": "Technician",
                       "status_name": "In use",
-                      "site_name": "Toronto"
+                      "site_name": "Toronto",
+                      "changehistory_last_updated": "2026-08-10T15:30:00Z"
                     }
                   ]
                 }
@@ -51,41 +61,144 @@ class HaloAssetRepositoryTest {
         val assets = repository(api).findByIdentifier(" SERIAL-42 ")
 
         assertEquals("SERIAL-42", api.lastIdentifier)
+        assertEquals(true, api.lastIncludeUser)
+        assertEquals(true, api.lastIncludeLastUpdated)
         assertEquals(
-            Asset(42, "TOR-LT-42", "SERIAL-42", "TAG-42", "Lenovo", "ThinkPad", "Technician", "In use", "Toronto"),
+            Asset(
+                42,
+                "TOR-LT-42",
+                "SERIAL-42",
+                "TAG-42",
+                "Lenovo",
+                "ThinkPad T14 Gen 4",
+                "Technician",
+                "In use",
+                "Toronto",
+                "2026-08-10T15:30:00Z",
+            ),
             assets.single(),
         )
     }
 
     @Test
-    fun `update sends a DTO and returns an app model`() = runTest {
+    fun `broad Halo search results are filtered to exact identifier matches`() = runTest {
         val api = StubHaloApi(
-            updatePayload = payload(
+            findPayload = payload(
                 """
-                [
-                  {
-                    "id": 42,
-                    "hostname": "TOR-LT-42",
-                    "serial_number": "SERIAL-42",
-                    "status_name": "Repair"
-                  }
-                ]
+                {
+                  "page_no": 1,
+                  "page_size": 50,
+                  "record_count": 3,
+                  "assets": [
+                    {"id":1,"inventory_number":"SERIAL-42"},
+                    {"id":2,"key_field":"SERIAL-420","key_field_name":"Serial number"},
+                    {"id":3,"key_field2":"serial-42","key_field2_name":"Serial number"}
+                  ]
+                }
                 """,
             ),
         )
 
-        val updated = repository(api).updateAsset(
-            AssetUpdate(assetId = 42, statusName = "Repair"),
+        val matches = repository(api).findByIdentifier("SERIAL-42")
+
+        assertEquals(listOf(1, 3), matches.map(Asset::id))
+        assertTrue(matches.all { it.matchedIdentifier == "SERIAL-42" })
+    }
+
+    @Test
+    fun `empty Device View is a valid no-match result`() = runTest {
+        val api = StubHaloApi(
+            findPayload = payload(
+                """
+                {"page_no":1,"page_size":50,"record_count":0,"assets":[]}
+                """,
+            ),
         )
 
-        assertEquals(listOf(HaloAssetUpdateDto(id = 42, statusName = "Repair")), api.lastUpdate)
-        assertEquals("Repair", updated.status)
+        assertTrue(repository(api).findByIdentifier("UNKNOWN-42").isEmpty())
+    }
+
+    @Test
+    fun `deploy and return send minimal tenant-verified DTOs without fetching the asset`() = runTest {
+        val api = StubHaloApi(updatePayload = payload("""{"id":42}"""))
+        val repository = repository(api)
+        val site = AssetSite(7, "Toronto")
+        val user = AssignableUser(9, "Maya Chen")
+
+        repository.updateAsset(AssetUpdate.Deploy(assetId = 42, site = site, user = user))
+        assertEquals(
+            listOf(HaloAssetUpdateDto(id = 42, siteId = 7, users = listOf(HaloAssetUserUpdateDto(9)))),
+            api.lastUpdate,
+        )
+        assertEquals(0, api.findCallCount)
+
+        repository.updateAsset(AssetUpdate.ReturnToInventory(assetId = 42, site = site))
+        assertEquals(
+            listOf(HaloAssetUpdateDto(id = 42, siteId = 7, users = emptyList())),
+            api.lastUpdate,
+        )
+        assertEquals(0, api.findCallCount)
+    }
+
+    @Test
+    fun `user search includes active end users and linked agents`() = runTest {
+        val api = StubHaloApi(
+            userPayload = payload(
+                """
+                {
+                  "page_no":1,
+                  "page_size":25,
+                  "record_count":3,
+                  "users":[
+                    {"id":1,"name":"Maya Chen","emailaddress":"maya@example.com","inactive":false},
+                    {"id":2,"name":"Jordan Lee","linked_agent_id":99,"inactive":false},
+                    {"id":3,"name":"Inactive User","inactive":true}
+                  ]
+                }
+                """,
+            ),
+        )
+
+        val users = repository(api).searchAssignableUsers("maya")
+
+        assertEquals("maya", api.lastUserQuery)
+        assertEquals(false, api.lastExcludeAgents)
+        assertEquals(false, api.lastIncludeInactiveUsers)
+        assertEquals(listOf(1, 2), users.map(AssignableUser::id))
+        assertEquals(false, users.first().isAgent)
+        assertEquals(true, users.last().isAgent)
+    }
+
+    @Test
+    fun `site list paginates and excludes inactive records`() = runTest {
+        val api = StubHaloApi(
+            sitePayload = payload(
+                """
+                {
+                  "page_no":1,
+                  "page_size":100,
+                  "record_count":4,
+                  "sites":[
+                    {"id":7,"name":"remote | us","inactive":false},
+                    {"id":8,"name":"Boston Office","client_name":"Newforma","inactive":false},
+                    {"id":9,"name":"Toronto Office","inactive":false},
+                    {"id":10,"name":"Closed","inactive":true}
+                  ]
+                }
+                """,
+            ),
+        )
+
+        val sites = repository(api).getActiveSites()
+
+        assertEquals(listOf("Boston Office", "Remote | US"), sites.map(AssetSite::name))
+        assertEquals(false, api.lastIncludeInactiveSites)
     }
 
     @Test
     fun `HTTP errors become app-level error categories`() = runTest {
         val cases = listOf(
-            401 to AssetDataError.Unauthenticated,
+            401 to AssetDataError.AuthorizationRejected,
             403 to AssetDataError.Forbidden,
             404 to AssetDataError.NotFound,
             408 to AssetDataError.Timeout,
@@ -101,6 +214,50 @@ class HaloAssetRepositoryTest {
     }
 
     @Test
+    fun `401 forces one token refresh and retries the read once`() = runTest {
+        val refreshRequests = mutableListOf<Boolean>()
+        val api = StubHaloApi(
+            findPayload = payload(
+                """
+                {"page_no":1,"page_size":50,"record_count":1,"assets":[{"id":42,"key_field":"SERIAL-42","key_field_name":"Serial number"}]}
+                """,
+            ),
+            findFailure = httpError(401),
+            findFailuresBeforeSuccess = 1,
+        )
+        val repository = HaloAssetRepository(
+            api = api,
+            json = json,
+            accessTokenProvider = AccessTokenProvider { "test-access-token" },
+            freshAccessTokenProvider = FreshAccessTokenProvider { forceRefresh ->
+                refreshRequests += forceRefresh
+                "test-access-token"
+            },
+        )
+
+        assertEquals(42, repository.findByIdentifier("SERIAL-42").single().id)
+        assertEquals(listOf(false, true), refreshRequests)
+    }
+
+    @Test
+    fun `API rejection after a successful refresh is reported as authorization rejection`() = runTest {
+        val refreshRequests = mutableListOf<Boolean>()
+        val api = StubHaloApi(findFailure = httpError(401))
+        val repository = HaloAssetRepository(
+            api = api,
+            json = json,
+            accessTokenProvider = AccessTokenProvider { "expired-access-token" },
+            freshAccessTokenProvider = FreshAccessTokenProvider { forceRefresh ->
+                refreshRequests += forceRefresh
+                "refreshed-access-token"
+            },
+        )
+
+        assertEquals(AssetDataError.AuthorizationRejected, repository.findError())
+        assertEquals(listOf(false, true), refreshRequests)
+    }
+
+    @Test
     fun `transport and malformed failures become app-level errors`() = runTest {
         assertEquals(
             AssetDataError.NoNetwork,
@@ -109,6 +266,10 @@ class HaloAssetRepositoryTest {
         assertEquals(
             AssetDataError.Timeout,
             repository(StubHaloApi(findFailure = SocketTimeoutException())).findError(),
+        )
+        assertEquals(
+            AssetDataError.NoNetwork,
+            repository(StubHaloApi(findFailure = IOException("connection lost during lookup"))).findError(),
         )
         assertEquals(
             AssetDataError.MalformedResponse,
@@ -156,21 +317,72 @@ class HaloAssetRepositoryTest {
 
     private class StubHaloApi(
         var findPayload: JsonElement = JsonPrimitive("unused"),
+        var userPayload: JsonElement = JsonPrimitive("unused"),
+        var sitePayload: JsonElement = JsonPrimitive("unused"),
         var updatePayload: JsonElement = JsonPrimitive("unused"),
         var findFailure: Throwable? = null,
+        findFailuresBeforeSuccess: Int = Int.MAX_VALUE,
     ) : HaloApi {
+        private var remainingFindFailures = findFailuresBeforeSuccess
         var lastIdentifier: String? = null
+        var lastIncludeUser: Boolean? = null
+        var lastIncludeLastUpdated: Boolean? = null
+        var findCallCount: Int = 0
+        var lastUserQuery: String? = null
+        var lastExcludeAgents: Boolean? = null
+        var lastIncludeInactiveUsers: Boolean? = null
+        var lastIncludeInactiveSites: Boolean? = null
         var lastUpdate: List<HaloAssetUpdateDto>? = null
+
+        override suspend fun getCurrentAgent(): JsonElement = JsonPrimitive("unused")
 
         override suspend fun findAssets(
             identifier: String,
             paginate: Boolean,
             pageSize: Int,
             pageNumber: Int,
+            includeUser: Boolean,
+            includeLastUpdated: Boolean,
         ): JsonElement {
+            findCallCount += 1
             lastIdentifier = identifier
-            findFailure?.let { throw it }
+            lastIncludeUser = includeUser
+            lastIncludeLastUpdated = includeLastUpdated
+            findFailure?.let {
+                if (remainingFindFailures > 0) {
+                    remainingFindFailures -= 1
+                    throw it
+                }
+            }
             return findPayload
+        }
+
+        override suspend fun searchAssignableUsers(
+            query: String,
+            paginate: Boolean,
+            pageSize: Int,
+            pageNumber: Int,
+            includeActive: Boolean,
+            includeInactive: Boolean,
+            excludeAgents: Boolean,
+            listAgentUserFirst: Boolean,
+        ): JsonElement {
+            lastUserQuery = query
+            lastExcludeAgents = excludeAgents
+            lastIncludeInactiveUsers = includeInactive
+            return userPayload
+        }
+
+        override suspend fun getActiveSites(
+            paginate: Boolean,
+            pageSize: Int,
+            pageNumber: Int,
+            includeActive: Boolean,
+            includeInactive: Boolean,
+            order: String,
+        ): JsonElement {
+            lastIncludeInactiveSites = includeInactive
+            return sitePayload
         }
 
         override suspend fun updateAsset(request: List<HaloAssetUpdateDto>): JsonElement {

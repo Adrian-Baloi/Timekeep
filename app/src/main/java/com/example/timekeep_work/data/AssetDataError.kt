@@ -1,5 +1,6 @@
 package com.example.timekeep_work.data
 
+/** Stable error categories exposed by the data layer to the technician-facing UI. */
 sealed interface AssetDataError {
     val technicianMessage: String
     val retryable: Boolean
@@ -19,8 +20,17 @@ sealed interface AssetDataError {
         override val retryable = false
     }
 
+    data object AuthorizationRejected : AssetDataError {
+        override val technicianMessage =
+            "Halo rejected this request after refreshing the access token. Sign out and sign in again to apply the current scopes. " +
+                "If it still fails, verify the API application permissions and the signed-in technician's Halo role."
+        override val retryable = false
+    }
+
     data object Forbidden : AssetDataError {
-        override val technicianMessage = "Your Halo ITSM account is not permitted to perform this action."
+        override val technicianMessage =
+            "Your Halo sign-in is valid, but the API application or your Halo role does not allow this operation. " +
+                "Ask a Halo administrator to verify the least-privilege asset, user, and site permissions, then sign out and sign in again."
         override val retryable = false
     }
 
@@ -50,6 +60,7 @@ sealed interface AssetDataError {
     }
 }
 
+/** Wraps a low-level failure with the category and retry guidance understood by the UI. */
 class AssetRepositoryException(
     val error: AssetDataError,
     cause: Throwable? = null,

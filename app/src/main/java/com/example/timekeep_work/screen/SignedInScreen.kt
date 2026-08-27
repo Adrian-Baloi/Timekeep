@@ -40,6 +40,7 @@ import com.example.timekeep_work.Agent
 import com.example.timekeep_work.Header
 import com.example.timekeep_work.ui.theme.AppUIPalette
 
+/** Main authenticated screen from which a technician starts a scan or manual lookup. */
 @Composable
 fun SignedInScreen(
     agent: Agent,
