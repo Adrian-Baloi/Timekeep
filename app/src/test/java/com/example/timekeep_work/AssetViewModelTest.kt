@@ -101,14 +101,17 @@ class AssetViewModelTest {
         viewModel.onManagementActionRequested()
         advanceUntilIdle()
         viewModel.onActionSelected(AssetManagementAction.Deploying)
+        viewModel.onSubmitUpdate()
+        advanceUntilIdle()
+        assertEquals(null, repository.lastUpdate)
         viewModel.onUserSelected(users.first())
+        viewModel.onSubmitUpdate()
+        advanceUntilIdle()
+        assertEquals(null, repository.lastUpdate)
         viewModel.onSiteSelected(sites.first())
-        viewModel.onReviewedChanged(true)
-        viewModel.onReviewUpdateRequested()
-
-        assertEquals(ManagementPhase.Confirming, viewModel.managementUiState.value.phase)
-
-        viewModel.onConfirmUpdate()
+        viewModel.onSubmitUpdate()
+        assertEquals(ManagementPhase.Updating, viewModel.managementUiState.value.phase)
+        viewModel.onSubmitUpdate()
         advanceUntilIdle()
 
         assertEquals(
@@ -116,7 +119,11 @@ class AssetViewModelTest {
             repository.lastUpdate,
         )
         assertEquals(1, repository.searchCount)
+        assertEquals(1, repository.updateCount)
         assertEquals(ManagementPhase.Success, viewModel.managementUiState.value.phase)
+        viewModel.onSubmitUpdate()
+        advanceUntilIdle()
+        assertEquals(1, repository.updateCount)
         val state = viewModel.uiState.value
         assertTrue(state is AssetUiState.MatchFound)
         state as AssetUiState.MatchFound
@@ -136,9 +143,7 @@ class AssetViewModelTest {
         advanceUntilIdle()
         viewModel.onActionSelected(AssetManagementAction.ReturningToInventory)
         viewModel.onSiteSelected(sites.last())
-        viewModel.onReviewedChanged(true)
-        viewModel.onReviewUpdateRequested()
-        viewModel.onConfirmUpdate()
+        viewModel.onSubmitUpdate()
         advanceUntilIdle()
 
         assertEquals(
@@ -253,6 +258,7 @@ class AssetViewModelTest {
         var searchCount = 0
         var lastSearchIdentifier: String? = null
         var lastUpdate: AssetUpdate? = null
+        var updateCount = 0
         var userSearchCount = 0
         var lastUserQuery: String? = null
 
@@ -277,6 +283,7 @@ class AssetViewModelTest {
         override suspend fun getActiveSites(): List<AssetSite> = sites
 
         override suspend fun updateAsset(request: AssetUpdate) {
+            updateCount += 1
             lastUpdate = request
         }
     }

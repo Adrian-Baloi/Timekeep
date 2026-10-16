@@ -17,16 +17,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -46,7 +43,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.timekeep_work.Agent
@@ -57,16 +53,9 @@ import com.example.timekeep_work.AssetSite
 import com.example.timekeep_work.Header
 import com.example.timekeep_work.ui.theme.AppUIPalette
 
-internal data class ConfirmationState(
-    val onDismiss: () -> Unit,
-    val onConfirm: () -> Unit,
-)
-
 internal data class LookupRecoveryActions(
     val onRescan: () -> Unit,
     val onManualCorrection: () -> Unit,
-    val onReturnToScanner: () -> Unit,
-    val onLogout: () -> Unit,
 )
 
 // Lookup screens: manual entry, progress, no match, and candidate selection.
@@ -78,7 +67,7 @@ internal fun ManualSerialEntryScreen(
     onSerialChange: (String) -> Unit,
     onBack: () -> Unit,
     onSearch: () -> Unit,
-) = WorkflowPage(agent, "Enter asset identifier", "Type the asset tag or serial number exactly as it appears on the device.") {
+) = WorkflowPage(agent, "Enter identifier", "") {
     Panel {
         OutlinedTextField(
             value = serial,
@@ -87,31 +76,9 @@ internal fun ManualSerialEntryScreen(
             label = { Text("Asset tag or serial number") },
             singleLine = true,
         )
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
         PrimaryButton("Search assets", onSearch, enabled = serial.isNotBlank())
         SecondaryButton("Back", onBack)
-    }
-}
-
-@Composable
-internal fun ScanningScreen(
-    agent: Agent,
-    onCancel: () -> Unit,
-    onSerialDetected: () -> Unit,
-) = WorkflowPage(agent, "Scan device", "Point the camera at the serial label.") {
-    Panel(horizontalAlignment = Alignment.CenterHorizontally) {
-        CircularProgressIndicator(color = AppUIPalette.Primary, modifier = Modifier.size(48.dp))
-        Spacer(Modifier.height(20.dp))
-        Text("Waiting for a barcode or QR code", style = sectionStyle())
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "Camera integration is simulated in this prototype.",
-            style = bodyStyle(),
-            color = AppUIPalette.TextSecondary,
-        )
-        Spacer(Modifier.height(24.dp))
-        PrimaryButton("Use demo scan", onSerialDetected)
-        SecondaryButton("Cancel", onCancel)
     }
 }
 
@@ -120,13 +87,11 @@ internal fun SearchingScreen(
     agent: Agent,
     serial: String,
     onCancel: () -> Unit,
-) = WorkflowPage(agent, "Searching Halo ITSM", "Looking for asset tag or serial number") {
+) = WorkflowPage(agent, "Searching", "") {
     Panel(horizontalAlignment = Alignment.CenterHorizontally) {
         CircularProgressIndicator(color = AppUIPalette.Primary, modifier = Modifier.size(48.dp))
         Spacer(Modifier.height(20.dp))
         SerialNumber(serial)
-        Spacer(Modifier.height(12.dp))
-        Text("The lookup continues while this screen is active.", style = bodyStyle(), color = AppUIPalette.TextSecondary)
         Spacer(Modifier.height(16.dp))
         SecondaryButton("Cancel", onCancel)
     }
@@ -138,28 +103,13 @@ internal fun NoMatchingAssetScreen(
     serial: String,
     onRetry: () -> Unit,
     recoveryActions: LookupRecoveryActions,
-) = WorkflowPage(agent, "No matching asset", "No asset has this asset tag or serial number.") {
+) = WorkflowPage(agent, "No matching asset", "") {
     Panel {
         SerialNumber(serial)
         Spacer(Modifier.height(16.dp))
-        Notice("Nothing was changed. Check the label or try scanning again.", Color(0xFFFFF4DA), Color(0xFF8A5A00))
-        Spacer(Modifier.height(24.dp))
         PrimaryButton("Retry lookup", onRetry)
         RecoveryActions(recoveryActions)
     }
-}
-
-@Composable
-internal fun OneMatchingAssetScreen(
-    agent: Agent,
-    asset: Asset,
-    onReviewAsset: () -> Unit,
-    recoveryActions: LookupRecoveryActions,
-) = WorkflowPage(agent, "One asset found", "Review the match before making any change.") {
-    AssetSummary(asset)
-    Spacer(Modifier.height(16.dp))
-    PrimaryButton("Review asset", onReviewAsset)
-    RecoveryActions(recoveryActions)
 }
 
 @Composable
@@ -168,32 +118,30 @@ internal fun MultipleAssetsScreen(
     assets: List<Asset>,
     onSelect: (Int) -> Unit,
     recoveryActions: LookupRecoveryActions,
-) = WorkflowPage(agent, "Choose the correct asset", "${assets.size} assets share this identifier. Compare the details.") {
+) = WorkflowPage(agent, "Choose asset", "${assets.size} matches") {
     assets.forEach { asset ->
         CandidateAsset(asset, onClick = { onSelect(asset.id) })
         Spacer(Modifier.height(12.dp))
     }
-    Notice("No asset is selected until you choose one.", Color(0xFFE7F0F8), AppUIPalette.Primary)
     RecoveryActions(recoveryActions)
 }
 
 @Composable
 private fun AssetDetailsPanel(
     asset: Asset,
+    showAll: Boolean,
 ) {
     Panel {
         MatchedIdentifier(asset.matchedIdentifier)
-        Spacer(Modifier.height(20.dp))
-        DetailRow("Hostname or device name", asset.hostname)
-        DetailRow("Serial number", asset.serialNumber)
+        Spacer(Modifier.height(16.dp))
+        DetailRow("Device", asset.hostname)
         DetailRow("Asset tag", asset.assetTag)
-        DetailRow("Manufacturer", asset.manufacturer)
-        DetailRow("Model", asset.model)
         DetailRow("Assigned user", asset.assignedUser)
-        DetailRow("Status", asset.status)
         DetailRow("Location", asset.location)
-        DetailRow("Last updated", asset.lastUpdated)
-        DetailRow("Halo asset ID", asset.id.toString())
+        if (showAll) {
+            DetailRow("Serial number", asset.serialNumber)
+            DetailRow("Status", asset.status)
+        }
     }
 }
 
@@ -209,76 +157,61 @@ internal fun ManagementActionScreen(
     onUserSelected: (AssignableUser) -> Unit,
     onSiteSelected: (AssetSite) -> Unit,
     onRetrySites: () -> Unit,
-    onReviewedChange: (Boolean) -> Unit,
     onBack: () -> Unit,
-    onContinue: () -> Unit,
-    confirmation: ConfirmationState? = null,
+    backLabel: String,
+    onSubmit: () -> Unit,
+    onManageAgain: () -> Unit,
 ) {
-    WorkflowPage(agent, "Asset details", "Confirm this is the device in front of you.") {
-        AssetDetailsPanel(asset)
-        Title("Management action", "Choose the intended change for this asset.")
-        Spacer(Modifier.height(16.dp))
-        Panel {
-            ActionDropdown(state.selectedAction, onActionChange)
-            if (state.selectedAction == AssetManagementAction.Deploying) {
-                Spacer(Modifier.height(16.dp))
-                UserSearchDropdown(state, onUserQueryChange, onUserSelected)
-            }
-            if (state.selectedAction != null) {
-                Spacer(Modifier.height(16.dp))
-                SiteDropdown(state, onSiteSelected)
-            }
-            state.optionsFailure?.let { message ->
-                Spacer(Modifier.height(12.dp))
-                Notice(message, Color(0xFFFFE8E7), Color(0xFF9A2722))
-                if (state.sites.isEmpty() && !state.sitesLoading) {
-                    TertiaryButton("Retry site list", onRetrySites)
+    WorkflowPage(agent, "Asset details", "") {
+        if (state.phase == ManagementPhase.Success) {
+            Notice("Asset updated", Color(0xFFE2F4E8), Color(0xFF24713A))
+            Spacer(Modifier.height(16.dp))
+        }
+        AssetDetailsPanel(asset, showAll = state.phase == ManagementPhase.Success)
+        if (state.phase == ManagementPhase.Success) {
+            Spacer(Modifier.height(16.dp))
+            PrimaryButton("Manage asset", onManageAgain)
+        } else {
+            Spacer(Modifier.height(24.dp))
+            Text("Management action", style = sectionStyle())
+            Spacer(Modifier.height(12.dp))
+            Panel {
+                ActionDropdown(state.selectedAction, onActionChange)
+                if (state.selectedAction == AssetManagementAction.Deploying) {
+                    Spacer(Modifier.height(16.dp))
+                    UserSearchDropdown(state, onUserQueryChange, onUserSelected)
                 }
+                if (state.selectedAction != null) {
+                    Spacer(Modifier.height(16.dp))
+                    SiteDropdown(state, onSiteSelected)
+                }
+                state.optionsFailure?.let { message ->
+                    Spacer(Modifier.height(12.dp))
+                    Notice(message, Color(0xFFFFE8E7), Color(0xFF9A2722))
+                    if (state.sites.isEmpty() && !state.sitesLoading) {
+                        TertiaryButton("Retry sites", onRetrySites)
+                    }
+                }
+            }
+            state.failure?.let { failure ->
+                Spacer(Modifier.height(12.dp))
+                Notice(failure.message, Color(0xFFFFE8E7), Color(0xFF9A2722))
             }
             Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = state.reviewed,
-                    onCheckedChange = onReviewedChange,
-                    enabled = state.selectedAction != null && state.selectedSite != null &&
-                        (state.selectedAction != AssetManagementAction.Deploying || state.selectedUser != null),
-                )
-                Text("I reviewed the asset details", style = bodyStyle())
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        PrimaryButton(
-            label = if (state.phase == ManagementPhase.Updating) "Updating..." else "Review change",
-            onClick = onContinue,
-            enabled = state.canReview && state.phase != ManagementPhase.Updating,
-        )
-        if (!state.canReview) {
-            Text(
-                "Choose the required fields and review the asset before continuing.",
-                modifier = Modifier.padding(top = 8.dp),
-                style = bodyStyle(),
-                color = AppUIPalette.TextSecondary,
+            PrimaryButton(
+                label = when {
+                    state.phase == ManagementPhase.Updating -> "Sending..."
+                    state.selectedAction == AssetManagementAction.Deploying -> "Deploy asset"
+                    state.selectedAction == AssetManagementAction.ReturningToInventory -> "Return to inventory"
+                    else -> "Send update"
+                },
+                onClick = onSubmit,
+                enabled = state.canSubmit && state.phase == ManagementPhase.Editing,
             )
         }
-        SecondaryButton("Back to asset", onBack)
-    }
-
-    if (confirmation != null) {
-        AlertDialog(
-            onDismissRequest = confirmation.onDismiss,
-            title = { Text("Confirm asset update") },
-            text = {
-                Column {
-                    Text(state.confirmationMessage(asset))
-                    Spacer(Modifier.height(12.dp))
-                    Text("Matched identifier: ${asset.matchedIdentifier}", fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(8.dp))
-                    Text("This will write to Halo ITSM.", color = AppUIPalette.TextSecondary)
-                }
-            },
-            confirmButton = { Button(onClick = confirmation.onConfirm) { Text("Confirm update") } },
-            dismissButton = { TextButton(onClick = confirmation.onDismiss) { Text("Go back") } },
-        )
+        if (state.phase != ManagementPhase.Updating) {
+            SecondaryButton(backLabel, onBack)
+        }
     }
 }
 
@@ -328,7 +261,7 @@ private fun UserSearchDropdown(
                 onQueryChange(it)
             },
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Search active users and agents") },
+            label = { Text("Search user") },
             supportingText = {
                 Text(
                     when {
@@ -336,7 +269,7 @@ private fun UserSearchDropdown(
                             "Selected ${if (state.selectedUser.isAgent) "agent" else "user"}"
                         state.userSearching -> "Searching Halo ITSM..."
                         state.userQuery.trim().length < AssetViewModel.MIN_USER_QUERY_LENGTH ->
-                            "Enter at least 4 characters"
+                            "Enter 4 or more characters"
                         state.userResults.isEmpty() -> "No active users found"
                         else -> "Choose a result"
                     },
@@ -418,17 +351,6 @@ private fun SiteDropdown(
     }
 }
 
-private fun ManagementUiState.confirmationMessage(asset: Asset): String {
-    val assetName = asset.assetTag ?: asset.hostname ?: asset.matchedIdentifier
-    return when (selectedAction) {
-        AssetManagementAction.Deploying ->
-            "Deploy $assetName to ${selectedUser?.name} at ${selectedSite?.name}."
-        AssetManagementAction.ReturningToInventory ->
-            "Return $assetName to ${selectedSite?.name} and remove its assigned user."
-        null -> "No management action is selected."
-    }
-}
-
 // Terminal and recovery screens shown after loading or updating an asset.
 
 @Composable
@@ -442,30 +364,6 @@ internal fun AssetLoadingScreen(
         Spacer(Modifier.height(20.dp))
         SecondaryButton("Back", onBack)
     }
-}
-
-@Composable
-internal fun SuccessfulUpdateScreen(
-    agent: Agent,
-    asset: Asset,
-    message: String,
-    onDone: () -> Unit,
-    onViewAsset: () -> Unit,
-) = WorkflowPage(agent, "Update successful", "Halo ITSM has been updated.") {
-    Panel(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier.size(56.dp).background(Color(0xFFE2F4E8), RoundedCornerShape(28.dp)),
-            contentAlignment = Alignment.Center,
-        ) { Text("✓", color = Color(0xFF24713A), fontSize = 30.sp, fontWeight = FontWeight.Bold) }
-        Spacer(Modifier.height(16.dp))
-        Text(asset.hostname ?: asset.assetTag ?: "Asset ${asset.id}", style = sectionStyle())
-        Text(message, style = bodyStyle(), color = Color(0xFF24713A))
-        Spacer(Modifier.height(8.dp))
-        Text("Matched ${asset.matchedIdentifier}", style = bodyStyle(), color = AppUIPalette.TextSecondary)
-    }
-    Spacer(Modifier.height(16.dp))
-    PrimaryButton("Scan another device", onDone)
-    SecondaryButton("View updated asset", onViewAsset)
 }
 
 @Composable
@@ -524,10 +422,9 @@ private fun WorkflowPage(
     ) {
         Header()
         Spacer(Modifier.height(14.dp))
-        IdentityBanner(agent)
         Title(title, subtitle)
         content()
-        Spacer(Modifier.height(72.dp))
+        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -538,27 +435,11 @@ private fun Title(
 ) {
         Spacer(Modifier.height(22.dp))
         Text(title, style = titleStyle())
-        Spacer(Modifier.height(4.dp))
-        Text(subtitle, style = bodyStyle(), color = AppUIPalette.TextSecondary)
-        Spacer(Modifier.height(18.dp))
-}
-
-@Composable
-private fun IdentityBanner(agent: Agent) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        color = Color(0xFFE7F0F8),
-        shape = RoundedCornerShape(10.dp),
-    ) {
-        Row(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("●", color = Color(0xFF24713A), fontSize = 12.sp)
-            Spacer(Modifier.width(8.dp))
-            Column {
-                Text("Signed in as ${agent.name}", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                Text(agent.email, color = AppUIPalette.TextSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
+        if (subtitle.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(subtitle, style = bodyStyle(), color = AppUIPalette.TextSecondary)
         }
-    }
+        Spacer(Modifier.height(18.dp))
 }
 
 @Composable
@@ -578,26 +459,6 @@ private fun Panel(
 }
 
 @Composable
-private fun AssetSummary(asset: Asset, compact: Boolean = false) {
-    Panel {
-        MatchedIdentifier(asset.matchedIdentifier)
-        Spacer(Modifier.height(if (compact) 10.dp else 18.dp))
-        Text(asset.hostname ?: "Device name unavailable", style = sectionStyle())
-        if (!compact) {
-            Spacer(Modifier.height(12.dp))
-            DetailRow("Serial number", asset.serialNumber)
-            DetailRow("Asset tag", asset.assetTag)
-            DetailRow("Manufacturer", asset.manufacturer)
-            DetailRow("Model", asset.model)
-            DetailRow("Assigned to", asset.assignedUser)
-            DetailRow("Status", asset.status)
-            DetailRow("Location", asset.location)
-            DetailRow("Last updated", asset.lastUpdated)
-        }
-    }
-}
-
-@Composable
 private fun CandidateAsset(asset: Asset, onClick: () -> Unit) {
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
@@ -611,24 +472,18 @@ private fun CandidateAsset(asset: Asset, onClick: () -> Unit) {
             Spacer(Modifier.height(8.dp))
             DetailRow("Serial number", asset.serialNumber)
             DetailRow("Asset tag", asset.assetTag)
-            DetailRow("Manufacturer", asset.manufacturer)
-            DetailRow("Model", asset.model)
             DetailRow("Assigned user", asset.assignedUser)
-            DetailRow("Status", asset.status)
             DetailRow("Location", asset.location)
-            DetailRow("Last updated", asset.lastUpdated)
             Spacer(Modifier.height(12.dp))
-            Text("Select and review →", color = AppUIPalette.Primary, fontWeight = FontWeight.SemiBold)
+            Text("Select asset →", color = AppUIPalette.Primary, fontWeight = FontWeight.SemiBold)
         }
     }
 }
 
 @Composable
 private fun RecoveryActions(actions: LookupRecoveryActions) {
-    SecondaryButton("Rescan", actions.onRescan)
-    TertiaryButton("Correct identifier manually", actions.onManualCorrection)
-    TertiaryButton("Return to scanner", actions.onReturnToScanner)
-    TertiaryButton("Logout", actions.onLogout)
+    SecondaryButton("Scan again", actions.onRescan)
+    TertiaryButton("Enter manually", actions.onManualCorrection)
 }
 
 @Composable

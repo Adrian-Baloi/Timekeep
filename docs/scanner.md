@@ -22,7 +22,7 @@ Until representative labels are captured, production normalization intentionally
 - Scanner cancellation returns to the existing signed-in scan screen.
 - Manual and scanned values both become a `NormalizedIdentifier` before lookup.
 - Invalid values remain local and never call the Halo repository.
-- A successful scan starts only the read-only asset lookup. Halo writes remain behind the existing review and confirmation flow.
+- A successful scan starts a read-only asset lookup. The management form submits a Halo update when its required fields are filled and the agent presses the action button.
 - The manifest requests install-time delivery of the `barcode_ui` module. A temporary missing-module failure still falls back safely to retry or manual entry.
 
 ## Physical test matrix

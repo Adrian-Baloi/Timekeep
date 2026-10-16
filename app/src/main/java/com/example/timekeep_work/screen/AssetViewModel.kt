@@ -141,18 +141,6 @@ class AssetViewModel(
         loadAsset(assetId)
     }
 
-    fun onReturnToCandidates(): Boolean {
-        val identifier = lastIdentifier ?: return false
-        val candidates = lastCandidates ?: return false
-        if (candidates.size <= 1) return false
-        publishCandidates(identifier, candidates)
-        return true
-    }
-
-    fun onAssetReviewed() {
-        _managementUiState.value = _managementUiState.value.copy(reviewed = true)
-    }
-
     fun onManagementActionRequested() {
         val state = _managementUiState.value
         _managementUiState.value = if (state.phase == ManagementPhase.Success) {
@@ -178,7 +166,6 @@ class AssetViewModel(
             selectedUser = null,
             userSearching = false,
             optionsFailure = null,
-            reviewed = false,
             phase = ManagementPhase.Editing,
             failure = null,
         )
@@ -196,7 +183,6 @@ class AssetViewModel(
             selectedUser = null,
             userSearching = shouldSearch,
             optionsFailure = null,
-            reviewed = false,
             phase = ManagementPhase.Editing,
             failure = null,
         )
@@ -231,7 +217,6 @@ class AssetViewModel(
             selectedUser = user,
             userSearching = false,
             optionsFailure = null,
-            reviewed = false,
             phase = ManagementPhase.Editing,
             failure = null,
         )
@@ -241,38 +226,13 @@ class AssetViewModel(
         _managementUiState.value = _managementUiState.value.copy(
             selectedSite = site,
             optionsFailure = null,
-            reviewed = false,
             phase = ManagementPhase.Editing,
             failure = null,
         )
     }
 
-    fun onReviewedChanged(reviewed: Boolean) {
-        _managementUiState.value = _managementUiState.value.copy(
-            reviewed = reviewed,
-            phase = ManagementPhase.Editing,
-            failure = null,
-        )
-    }
-
-    fun onReviewUpdateRequested() {
-        val state = _managementUiState.value
-        if (state.assetId != null && state.canReview) {
-            _managementUiState.value = state.copy(
-                phase = ManagementPhase.Confirming,
-                failure = null,
-            )
-        }
-    }
-
-    fun onConfirmationDismissed() {
-        _managementUiState.value = _managementUiState.value.copy(
-            phase = ManagementPhase.Editing,
-        )
-    }
-
-    /** Validates the current form one last time, then submits exactly one domain update. */
-    fun onConfirmUpdate() {
+    /** Submits one update as soon as the required fields are filled. */
+    fun onSubmitUpdate() {
         val state = _managementUiState.value
         val assetId = state.assetId ?: return
         val site = state.selectedSite ?: return
@@ -293,7 +253,7 @@ class AssetViewModel(
         val currentAsset = (_uiState.value as? AssetUiState.MatchFound)?.asset
             ?.takeIf { it.id == assetId }
             ?: return
-        if (!state.canReview || updateJob?.isActive == true) return
+        if (!state.canSubmit || state.phase != ManagementPhase.Editing || updateJob?.isActive == true) return
 
         _managementUiState.value = state.copy(
             phase = ManagementPhase.Updating,
@@ -330,7 +290,7 @@ class AssetViewModel(
         when (failedOperation) {
             FailedOperation.Search -> lastIdentifier?.let(::search)
             FailedOperation.LoadAsset -> lastRequestedAssetId?.let(::loadAsset)
-            FailedOperation.Update -> onReviewUpdateRequested()
+            FailedOperation.Update -> onSubmitUpdate()
             null -> Unit
         }
     }

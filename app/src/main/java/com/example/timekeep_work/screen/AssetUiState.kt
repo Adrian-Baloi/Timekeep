@@ -19,7 +19,7 @@ sealed interface AssetUiState {
     ) : AssetUiState
 }
 
-/** Form state for reviewing and applying a management action to one selected asset. */
+/** Form state for applying a management action to one selected asset. */
 data class ManagementUiState(
     val assetId: Int? = null,
     val selectedAction: AssetManagementAction? = null,
@@ -31,23 +31,20 @@ data class ManagementUiState(
     val selectedSite: AssetSite? = null,
     val sitesLoading: Boolean = false,
     val optionsFailure: String? = null,
-    val reviewed: Boolean = false,
     val phase: ManagementPhase = ManagementPhase.Editing,
     val failure: AssetUiState.Failure? = null,
 ) {
-    /** True only after the technician reviews all fields required by the selected action. */
-    val canReview: Boolean
-        get() = reviewed && selectedSite != null && when (selectedAction) {
+    val canSubmit: Boolean
+        get() = selectedSite != null && when (selectedAction) {
             AssetManagementAction.Deploying -> selectedUser != null
             AssetManagementAction.ReturningToInventory -> true
             null -> false
         }
 }
 
-/** Stages of the management form and its confirmation/update cycle. */
+/** Stages of the management form and update. */
 enum class ManagementPhase {
     Editing,
-    Confirming,
     Updating,
     Success,
 }

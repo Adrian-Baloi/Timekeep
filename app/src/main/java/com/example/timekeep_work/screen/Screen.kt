@@ -9,6 +9,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -17,7 +20,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.timekeep_work.AssetManagementAction
 import com.example.timekeep_work.data.AppDependencies
 import com.example.timekeep_work.scanner.GoogleCodeScannerGateway
 import com.example.timekeep_work.scanner.IdentifierNormalizationResult
@@ -39,6 +41,7 @@ fun Screen(
     scannerGateway: ScannerGateway? = null,
 ) {
     val navController = rememberNavController()
+    var lookupFromManual by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val identifierNormalizer = remember { IdentifierNormalizer() }
     val activeScannerGateway = remember(context, scannerGateway) {
@@ -69,6 +72,7 @@ fun Screen(
 
         when (val result = activeScannerGateway.scan()) {
             is ScanResult.Success -> {
+                lookupFromManual = false
                 assetViewModel.onIdentifierSubmitted(result.identifier)
                 navController.navigate(Routes.candidates(result.identifier.value))
             }
@@ -135,8 +139,6 @@ fun Screen(
     val lookupRecoveryActions = LookupRecoveryActions(
         onRescan = { navigateToScanner(startScan = true) },
         onManualCorrection = ::openManualCorrection,
-        onReturnToScanner = { navigateToScanner(startScan = false) },
-        onLogout = ::logout,
     )
 
     NavHost(
@@ -170,8 +172,10 @@ fun Screen(
                 onBack = { navController.popBackStack() },
                 onSearch = {
                     when (val result = assetViewModel.onSerialSubmitted(serialInput)) {
-                        is IdentifierNormalizationResult.Success ->
+                        is IdentifierNormalizationResult.Success -> {
+                            lookupFromManual = true
                             navController.navigate(Routes.candidates(result.identifier.value))
+                        }
                         is IdentifierNormalizationResult.Invalid -> Toast.makeText(
                             context,
                             result.reason.userFacingMessage(),
@@ -264,15 +268,18 @@ fun Screen(
             val assetId = backStackEntry.arguments?.getInt(Routes.AssetIdArgument) ?: return@composable
 
             fun leaveManagement() {
-                if (assetViewModel.onReturnToCandidates()) {
-                    navController.popBackStack()
+                if (lookupFromManual) {
+                    assetViewModel.onReturnToScanner()
+                    if (!navController.popBackStack(Routes.ManualEntry, inclusive = false)) {
+                        navController.navigate(Routes.ManualEntry)
+                    }
                 } else {
-                    navigateToScanner(startScan = false)
+                    navigateToScanner(startScan = true)
                 }
             }
 
             BackHandler {
-                leaveManagement()
+                if (managementState.phase != ManagementPhase.Updating) leaveManagement()
             }
 
             LaunchedEffect(assetId) {
@@ -280,41 +287,11 @@ fun Screen(
             }
 
             val asset = (assetState as? AssetUiState.MatchFound)?.asset?.takeIf { it.id == assetId }
-            val failure = managementState.failure
             when {
-                failure != null -> WorkflowFailureScreen(
-                    agent = currentAgent,
-                    title = "Update failed",
-                    message = failure.message,
-                    primaryLabel = if (failure.retryable) "Try again" else "Back to asset",
-                    onPrimary = {
-                        if (failure.retryable) {
-                            assetViewModel.onRetry()
-                        } else {
-                            assetViewModel.onManagementActionRequested()
-                        }
-                    },
-                    recoveryActions = lookupRecoveryActions,
-                )
-
                 asset == null -> AssetLoadingScreen(
                     agent = currentAgent,
                     assetId = assetId,
                     onBack = ::leaveManagement,
-                )
-
-                managementState.phase == ManagementPhase.Success -> SuccessfulUpdateScreen(
-                    agent = currentAgent,
-                    asset = asset,
-                    message = when (managementState.selectedAction) {
-                        AssetManagementAction.Deploying ->
-                            "Deployed to ${managementState.selectedUser?.name} at ${managementState.selectedSite?.name}"
-                        AssetManagementAction.ReturningToInventory ->
-                            "Returned to inventory at ${managementState.selectedSite?.name}"
-                        null -> "Asset updated"
-                    },
-                    onDone = { navigateToScanner(startScan = true) },
-                    onViewAsset = assetViewModel::onManagementActionRequested,
                 )
 
                 else -> ManagementActionScreen(
@@ -326,17 +303,10 @@ fun Screen(
                     onUserSelected = assetViewModel::onUserSelected,
                     onSiteSelected = assetViewModel::onSiteSelected,
                     onRetrySites = assetViewModel::onManagementActionRequested,
-                    onReviewedChange = assetViewModel::onReviewedChanged,
                     onBack = ::leaveManagement,
-                    onContinue = assetViewModel::onReviewUpdateRequested,
-                    confirmation = if (managementState.phase == ManagementPhase.Confirming) {
-                        ConfirmationState(
-                            onDismiss = assetViewModel::onConfirmationDismissed,
-                            onConfirm = assetViewModel::onConfirmUpdate,
-                        )
-                    } else {
-                        null
-                    },
+                    backLabel = if (lookupFromManual) "Back to manual entry" else "Scan again",
+                    onSubmit = assetViewModel::onSubmitUpdate,
+                    onManageAgain = assetViewModel::onManagementActionRequested,
                 )
             }
         }
