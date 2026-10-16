@@ -1,6 +1,6 @@
 package com.example.timekeep_work.network
 
-import com.example.timekeep_work.network.dto.HaloAssetUpdateDto
+import com.example.timekeep_work.network.dto.HaloAssetChangeTicketDto
 import kotlinx.serialization.json.JsonElement
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -51,10 +51,10 @@ interface HaloApi {
         @Query("order") order: String = "name",
     ): JsonElement
 
-    // The tenant schema requires Device.users for assignment and Device.site_id for location.
-    // A minimal body can update by Halo id without GET /Asset/{id}; the response is not used as a refetch.
-    @POST("Asset")
-    suspend fun updateAsset(
-        @Body request: List<HaloAssetUpdateDto>,
+    // Confirmed against the Newforma tenant schema and a tenant-tested request in September 2026.
+    // Ticket type 79 runs Halo's asset-change workflow; the response is not used as an asset refetch.
+    @POST("Tickets")
+    suspend fun createAssetChangeTicket(
+        @Body request: List<HaloAssetChangeTicketDto>,
     ): JsonElement
 }

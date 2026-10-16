@@ -10,7 +10,8 @@ import okhttp3.Response
 /**
  * Writes only method, sanitized route, status, and duration to Logcat.
  * Query values, request headers and bodies, exception messages, and stack traces are never logged.
- * Failed Asset writes additionally include a bounded, redacted Halo response and redirect hosts.
+ * Failed asset-change ticket submissions additionally include a bounded, redacted Halo response
+ * and redirect hosts.
  */
 class SafeNetworkLoggingInterceptor(
     private val diagnosticSink: FailureDiagnosticSink = FailureDiagnosticSink { },
@@ -24,8 +25,8 @@ class SafeNetworkLoggingInterceptor(
             chain.proceed(request).also { response ->
                 val durationMs = elapsedMilliseconds(startedAt)
                 Log.d(LOG_TAG, "${request.method} $route -> ${response.code} (${durationMs}ms)")
-                if (request.isAssetUpdate() && !response.isSuccessful) {
-                    val diagnostic = response.assetFailureDiagnostics(request.url.host)
+                if (request.isAssetChangeTicket() && !response.isSuccessful) {
+                    val diagnostic = response.assetChangeFailureDiagnostics(request.url.host)
                     Log.w(LOG_TAG, diagnostic)
                     runCatching { diagnosticSink.record(diagnostic) }
                 }
@@ -52,11 +53,11 @@ class SafeNetworkLoggingInterceptor(
         }
     }
 
-    private fun okhttp3.Request.isAssetUpdate(): Boolean =
+    private fun okhttp3.Request.isAssetChangeTicket(): Boolean =
         method.equals("POST", ignoreCase = true) &&
-            url.encodedPath.trimEnd('/').endsWith("/Asset", ignoreCase = true)
+            url.encodedPath.trimEnd('/').endsWith("/Tickets", ignoreCase = true)
 
-    private fun Response.assetFailureDiagnostics(originHost: String): String {
+    private fun Response.assetChangeFailureDiagnostics(originHost: String): String {
         val redirectTrace = redirectTrace()
         val finalHost = request.url.host
         val authentication = header("WWW-Authenticate")
@@ -72,7 +73,7 @@ class SafeNetworkLoggingInterceptor(
         val body = peekSanitizedBody(body?.contentType())
 
         return buildString {
-            append("Halo Asset write failure: status=")
+            append("Halo asset-change ticket failure: status=")
             append(code)
             append(" originHost=")
             append(originHost)
@@ -119,7 +120,7 @@ fun interface FailureDiagnosticSink {
     fun record(diagnostic: String)
 }
 
-/** Keeps the latest sanitized asset-write diagnostic in app-private storage. */
+/** Keeps the latest sanitized asset-change diagnostic in app-private storage. */
 class PrivateFailureDiagnosticStore(context: Context) : FailureDiagnosticSink {
     private val applicationContext = context.applicationContext
 
@@ -143,7 +144,7 @@ internal object HaloFailureSanitizer {
     private const val MAX_BODY_LENGTH = 2_048
 
     private val sensitiveJsonValue = Regex(
-        pattern = """(?i)(\"(?:token|access_?token|refresh_?token|id_?token|authorization|authorization_?code|password|secret|client_?secret|email|username|user|asset(?:_?tag)?|serial(?:_?number)?)\"\s*:\s*)(\"(?:\\.|[^\"])*\"|[^,}\s]+)""",
+        pattern = """(?i)(\"(?:token|access_?token|refresh_?token|id_?token|authorization|authorization_?code|password|secret|client_?secret|email|username|user|account(?:_?number)?|asset(?:_?tag)?|serial(?:_?number)?)\"\s*:\s*)(\"(?:\\.|[^\"])*\"|[^,}\s]+)""",
     )
     private val bearerValue = Regex(
         """(?i)\bBearer\s+(?!error\b|realm\b|scope\b)[A-Za-z0-9._~+\-/]{16,}=*""",

@@ -1,14 +1,16 @@
 # HaloITSM asset management contract
 
-Verified on 2026-08-11 against the production tenant OpenAPI document at
-`https://newformaholdings.haloitsm.com/api/swagger/v2/swagger.json`.
+Verified on 2026-10-16 against the Newforma tenant OpenAPI document at
+`https://servicedesk.newforma.com/api/swagger/v2/swagger.json` and the request shape tested by the
+workflow owner. The ticket-to-asset mapping was confirmed from a known-good request captured from
+the tenant's Halo web UI.
 
 - Product: HaloITSM
 - OpenAPI: 3.0.1
 - API version: v2
 - Halo application version: not exposed by the public Swagger document
-- Resource server used for verification: `https://newformaholdings.haloitsm.com/api/`
-- Authorisation server discovered from the tenant: `https://newformaholdings.haloitsm.com/auth`
+- Resource server used for verification: `https://servicedesk.newforma.com/api/`
+- Authorisation server discovered from the tenant: `https://servicedesk.newforma.com/auth`
 
 The checked-in build remains pointed at DEV by default. Configure production URLs and tenant name through ignored `local.properties`, Gradle properties, or environment variables; do not commit credentials or tokens.
 
@@ -48,56 +50,90 @@ The management UI then applies a case-insensitive allowlist and displays only th
 9. Remote | International
 10. Remote | US
 
-## Minimal asset writes
+## Asset-change workflow tickets
 
-The production tenant documents `POST /Asset` with an array of `Device` objects. The `Device` schema has no required properties, includes nullable `site_id`, and represents assignment with a `users` array of `Users_List` records. It does not document `user_id` as an asset property.
+The app does not update `POST /Asset`. It creates an Asset Change ticket through `POST /Tickets`.
+The tenant documents an array of `Faults` records and a `201` response. The workflow owner verified
+ticket type `79` and these tenant-specific custom fields:
 
-Deploying sends only the already-resolved Halo asset ID, destination site ID, and selected Halo user ID:
+| Meaning | Field ID | Value |
+|---|---:|---|
+| Action | `564` | `1` for Deploying; `2` for Returning to Inventory |
+| Account number | `289` | Selected Halo user/account ID on deploy; omitted on return |
+| Office location | `404` | Selected Halo site ID |
+
+Both actions send the asset ID in `asset_number` and in the `assets` collection. The latter creates
+the Related CI relationship that the workflow operates on. The ticket also receives Halo's system
+`client_id` and `site_id` values for the selected office. Deploying adds the selected account number:
 
 ```json
 [
   {
-    "id": 42,
+    "tickettype_id": 79,
+    "asset_number": 42,
+    "assets": [{ "id": 42 }],
+    "client_id": 12,
     "site_id": 7,
-    "users": [
-      { "id": 9 }
+    "customfields": [
+      { "id": 564, "value": "1" },
+      { "id": 289, "value": "9" },
+      { "id": 404, "value": "7" }
     ]
   }
 ]
 ```
 
-Returning to Inventory sends the destination site and an explicitly empty users array:
+Returning to Inventory creates one ticket and omits account-number field `289`, matching the
+known-good Halo web request:
 
 ```json
 [
   {
-    "id": 42,
+    "tickettype_id": 79,
+    "asset_number": 42,
+    "assets": [{ "id": 42 }],
+    "client_id": 12,
     "site_id": 7,
-    "users": []
+    "customfields": [
+      { "id": 564, "value": "2" },
+      { "id": 404, "value": "7" }
+    ]
   }
 ]
 ```
 
-No status, hostname, serial, tag, customer, or unrelated asset fields are sent.
+UI transport and form-state fields such as `files`, `attachments`, `form_id`, `utcoffset`,
+`return_this`, `dont_do_rules`, and `donotapplytemplateintheapi` are not replayed. Unlike the Halo
+web client, the app has not locally applied the complete ticket template and therefore allows the
+server to apply the ticket type's normal template, rules, and workflow.
 
 ## Can the actions run without fetching the asset?
 
-Not from only `WLT-xxx` or a scanned serial number. The tenant Swagger exposes asset updates through `POST /Asset` using the Halo numeric asset `id`; it does not document a write route keyed by inventory number or serial. The scan lookup is therefore still required to resolve and confirm the correct asset and obtain its ID.
+Not from only `WLT-xxx` or a scanned serial number. The scan lookup is still required to resolve and
+confirm the correct asset and obtain the numeric Halo asset ID used by `asset_number` and `assets`.
 
-After that lookup, both actions can use a minimal update without an additional `GET /Asset/{id}` before or after the write. The repository update method performs only `POST /Asset`, and unit tests assert that neither Deploying nor Returning to Inventory invokes the asset search during the update. The UI applies the accepted values locally after Halo returns success.
+After that lookup, both actions submit exactly one `POST /Tickets` HTTP request without an additional
+asset read. Each action creates exactly one ticket. Unit tests assert that neither action invokes
+asset search during submission. A successful response confirms ticket creation; the configured Halo
+workflow remains responsible for applying the asset change.
 
-This is contract-level verification, not a live production mutation. No bearer token was supplied and no production asset was changed. A reversible live test with an authorized test asset is still required to confirm tenant runtime behavior, especially whether an empty `users` array clears assignment exactly as documented by the request schema.
+No live tenant mutation was made during this code change. The workflow owner separately supplied a
+known-valid request. Validate both action paths with authorized test records before production release.
 
 ## Authentication and permissions
 
-The production OAuth discovery document advertises `read:assets`, `edit:assets`, `read:users`, and `read:customers`, but the application's current Permissions tab does not expose or grant `read:users`. The permissions explicitly enabled for this app are `read:assets`, `edit:assets`, and `read:customers`. The tenant Swagger itself does not map individual operations to OAuth scopes, so `GET /Users` under this exact grant still needs a runtime check with a restricted technician account.
+The tenant OAuth discovery document advertises `read:assets`, `edit:tickets`, `read:users`, and
+`read:customers`. The tenant Swagger itself does not map individual operations to OAuth scopes, so
+the API application's Permissions tab and the technician's effective Halo role must allow each call.
 
 Use the following configured request as the least-privilege starting point:
 
 ```properties
-HALO_SCOPES=openid profile offline_access read:assets edit:assets read:customers
+HALO_SCOPES=openid profile offline_access read:assets edit:tickets read:users read:customers
 ```
 
-Halo roles and customer/site access restrictions remain authoritative even when the token contains those scopes. If `GET /Users` alone still returns `403` after a complete sign-out and sign-in, confirm with the Halo administrator whether this tenant can expose `read:users` to the native application or whether the signed-in technician's role/customer boundaries deny user lookup.
+Halo roles and customer/site access restrictions remain authoritative even when the token contains
+those scopes. If `GET /Users` or `POST /Tickets` returns `403` after a complete sign-out and sign-in,
+confirm the corresponding application permission and technician role with the Halo administrator.
 
 After changing requested scopes, rebuild/reinstall the app and completely sign out and sign in again. An existing authorization or refresh token does not automatically gain newly requested scopes. If Halo returns `401` again after the repository successfully refreshes the token, the app reports an authorization rejection instead of incorrectly describing it as a generic expired session.

@@ -17,7 +17,7 @@ class AuthScopeInstrumentedTest {
         assertNotNull("No signed-in Halo authorization state is stored.", authState)
 
         val grantedScopes = authState?.scopeSet.orEmpty()
-        val requiredScopes = setOf("read:assets", "edit:assets", "read:customers")
+        val requiredScopes = setOf("read:assets", "edit:tickets", "read:users", "read:customers")
         val missingScopes = requiredScopes - grantedScopes
         assertTrue(
             "Stored Halo authorization is missing scopes: ${missingScopes.sorted().joinToString()}",

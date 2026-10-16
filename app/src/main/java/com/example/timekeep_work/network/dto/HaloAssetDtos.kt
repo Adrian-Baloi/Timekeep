@@ -30,16 +30,3 @@ data class HaloAssetSearchResponseDto(
     @SerialName("record_count") val recordCount: Long? = null,
     val assets: List<HaloAssetDto>? = null,
 )
-
-/** Minimal write payload accepted by Halo's bulk Asset endpoint. */
-@Serializable
-data class HaloAssetUpdateDto(
-    val id: Int,
-    @SerialName("site_id") val siteId: Int,
-    val users: List<HaloAssetUserUpdateDto>,
-)
-
-@Serializable
-data class HaloAssetUserUpdateDto(
-    val id: Int,
-)

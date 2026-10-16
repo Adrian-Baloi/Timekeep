@@ -30,7 +30,7 @@ sealed interface AssetDataError {
     data object Forbidden : AssetDataError {
         override val technicianMessage =
             "Your Halo sign-in is valid, but the API application or your Halo role does not allow this operation. " +
-                "Ask a Halo administrator to verify the least-privilege asset, user, and site permissions, then sign out and sign in again."
+                "Ask a Halo administrator to verify the least-privilege asset, ticket, user, and site permissions, then sign out and sign in again."
         override val retryable = false
     }
 
@@ -40,7 +40,7 @@ sealed interface AssetDataError {
     }
 
     data object ValidationFailure : AssetDataError {
-        override val technicianMessage = "Halo ITSM could not accept the asset details. Review the change and try again."
+        override val technicianMessage = "Halo ITSM could not accept the asset-change request. Review the change and try again."
         override val retryable = false
     }
 
@@ -50,7 +50,7 @@ sealed interface AssetDataError {
     }
 
     data object MalformedResponse : AssetDataError {
-        override val technicianMessage = "Halo ITSM returned asset data the app could not read."
+        override val technicianMessage = "Halo ITSM returned data the app could not read."
         override val retryable = false
     }
 

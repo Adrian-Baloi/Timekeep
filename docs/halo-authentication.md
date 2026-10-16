@@ -9,8 +9,8 @@ In the target HaloITSM tenant, open `Configuration > Integrations > Halo API > V
 - Authentication method: `Authorisation Code (Native Application)`.
 - Login identity: the interactive Halo user. Apply only the roles and customer/team boundaries needed by the mobile workflow.
 - Redirect URI: `timekeep://auth/callback` for the current DEV configuration. This value must match `HALO_REDIRECT_URI` byte-for-byte.
-- Requested scopes for this tenant's enabled application permissions: `openid profile offline_access read:assets edit:assets read:customers`.
-- Halo permissions: enable only the matching asset read/edit, user-read, and site/customer-read permissions needed by the technician. The signed-in technician's own Halo role and access boundaries still apply, so both layers must allow each operation.
+- Requested scopes for this tenant's enabled application permissions: `openid profile offline_access read:assets edit:tickets read:users read:customers`.
+- Halo permissions: enable only the matching asset-read, ticket-create/edit, user-read, and site/customer-read permissions needed by the technician. The signed-in technician's own Halo role and access boundaries still apply, so both layers must allow each operation.
 - `Use a client secret for the token request`: **off**. A native/public app cannot protect a client secret.
 
 Record the tenant's displayed Resource Server URL, Authorisation Server URL, tenant name, Agent Portal URL, HaloITSM version, and `/api/swagger` document. The default DEV URLs in the build came from the supplied `Timekeep-dev` reference project; the tenant version was not available in source.
@@ -32,7 +32,7 @@ HALO_RESOURCE_SERVER_URL=https://tenant.example/api/
 HALO_AUTH_SERVER_URL=https://tenant.example/auth/
 HALO_TENANT_ID=tenant-name
 HALO_REDIRECT_URI=timekeep://auth/callback
-HALO_SCOPES=openid profile offline_access read:assets edit:assets read:customers
+HALO_SCOPES=openid profile offline_access read:assets edit:tickets read:users read:customers
 HALO_INCLUDE_TENANT_ON_TOKEN_REQUESTS=true
 USE_FAKE_ASSET_REPOSITORY=false
 ```

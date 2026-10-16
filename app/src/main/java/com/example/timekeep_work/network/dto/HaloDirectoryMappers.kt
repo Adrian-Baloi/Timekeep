@@ -5,7 +5,9 @@ import com.example.timekeep_work.AssetSite
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.intOrNull
 
 data class HaloUserPage(
     val recordCount: Long,
@@ -56,7 +58,12 @@ fun HaloSiteListDto.toAssetSite(): AssetSite? {
     if (inactive == true) return null
     val siteId = id?.takeIf { it > 0 } ?: return null
     val siteName = name.clean() ?: return null
-    return AssetSite(siteId, siteName, clientName.clean())
+    return AssetSite(
+        id = siteId,
+        name = siteName,
+        clientName = clientName.clean(),
+        clientId = (clientId as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 },
+    )
 }
 
 private inline fun <reified T> Json.decodePage(payload: JsonElement, label: String): T = try {

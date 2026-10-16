@@ -16,7 +16,7 @@ import com.example.timekeep_work.network.dto.matchesIdentifier
 import com.example.timekeep_work.network.dto.toAssetSite
 import com.example.timekeep_work.network.dto.toAssignableUser
 import com.example.timekeep_work.network.dto.toAppModel
-import com.example.timekeep_work.network.dto.toHaloDto
+import com.example.timekeep_work.network.dto.toHaloTicketDtos
 import java.io.IOException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
@@ -138,7 +138,7 @@ class HaloAssetRepository(
     override suspend fun updateAsset(request: AssetUpdate) {
         translateFailures {
             authenticatedCall {
-                api.updateAsset(listOf(request.toHaloDto()))
+                api.createAssetChangeTicket(request.toHaloTicketDtos())
             }
         }
     }

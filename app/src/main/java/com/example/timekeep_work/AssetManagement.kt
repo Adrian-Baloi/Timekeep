@@ -20,10 +20,12 @@ data class AssetSite(
     val id: Int,
     val name: String,
     val clientName: String? = null,
+    val clientId: Int? = null,
 ) {
     init {
         require(id > 0) { "id must be positive." }
         require(name.isNotBlank()) { "name must not be blank." }
+        require(clientId == null || clientId > 0) { "clientId must be positive when provided." }
     }
 }
 
@@ -63,7 +65,7 @@ enum class AssetManagementAction(val label: String) {
 }
 
 /**
- * Validated domain request for a Halo asset write.
+ * Validated domain request for Halo's asset-change ticket workflow.
  *
  * Keeping deployment and inventory returns as separate types prevents callers from creating
  * combinations such as a deployment without a user.

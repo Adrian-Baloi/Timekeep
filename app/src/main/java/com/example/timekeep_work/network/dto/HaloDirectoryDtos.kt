@@ -2,6 +2,7 @@ package com.example.timekeep_work.network.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 /** Wire model for a Halo user/agent candidate returned by the Users endpoint. */
 @Serializable
@@ -28,6 +29,8 @@ data class HaloUserSearchResponseDto(
 data class HaloSiteListDto(
     val id: Int? = null,
     val name: String? = null,
+    // Halo can return this integer-shaped identifier as either a JSON number or string.
+    @SerialName("client_id") val clientId: JsonElement? = null,
     @SerialName("client_name") val clientName: String? = null,
     val inactive: Boolean? = null,
 )

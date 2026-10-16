@@ -50,20 +50,45 @@ fun HaloAssetDto.toAppModel(matchedIdentifier: String? = null): Asset {
 fun HaloAssetDto.matchesIdentifier(identifier: String): Boolean =
     identifierValues().any { it.equals(identifier, ignoreCase = true) }
 
-/** Converts a validated domain request into Halo's minimal Device update shape. */
-fun AssetUpdate.toHaloDto(): HaloAssetUpdateDto = when (this) {
-    is AssetUpdate.Deploy -> HaloAssetUpdateDto(
-        id = assetId,
-        siteId = site.id,
-        users = listOf(HaloAssetUserUpdateDto(user.id)),
+/** Converts one app action into the tenant's asset-change workflow ticket batch. */
+fun AssetUpdate.toHaloTicketDtos(): List<HaloAssetChangeTicketDto> = when (this) {
+    is AssetUpdate.Deploy -> listOf(
+        assetChangeTicket(
+            actionValue = DEPLOYING_VALUE_ID,
+            additionalFields = listOf(
+                HaloTicketCustomFieldDto(ACCOUNT_NUMBER_FIELD_ID, user.id.toString()),
+            ),
+        ),
     )
 
-    is AssetUpdate.ReturnToInventory -> HaloAssetUpdateDto(
-        id = assetId,
-        siteId = site.id,
-        users = emptyList(),
+    // The native Halo request omits account-number field 289 when returning an asset.
+    is AssetUpdate.ReturnToInventory -> listOf(
+        assetChangeTicket(actionValue = RETURNING_TO_INVENTORY_VALUE_ID),
     )
 }
+
+private fun AssetUpdate.assetChangeTicket(
+    actionValue: Int,
+    additionalFields: List<HaloTicketCustomFieldDto> = emptyList(),
+): HaloAssetChangeTicketDto = HaloAssetChangeTicketDto(
+    ticketTypeId = ASSET_CHANGE_TICKET_TYPE_ID,
+    assetNumber = assetId,
+    assets = listOf(HaloTicketAssetDto(id = assetId)),
+    clientId = site.clientId,
+    siteId = site.id,
+    customFields = buildList {
+        add(HaloTicketCustomFieldDto(ACTION_FIELD_ID, actionValue.toString()))
+        addAll(additionalFields)
+        add(HaloTicketCustomFieldDto(OFFICE_LOCATION_FIELD_ID, site.id.toString()))
+    },
+)
+
+private const val ASSET_CHANGE_TICKET_TYPE_ID = 79
+private const val ACTION_FIELD_ID = 564
+private const val ACCOUNT_NUMBER_FIELD_ID = 289
+private const val OFFICE_LOCATION_FIELD_ID = 404
+private const val DEPLOYING_VALUE_ID = 1
+private const val RETURNING_TO_INVENTORY_VALUE_ID = 2
 
 /** Decodes a page and rejects incomplete non-empty responses before they reach the UI. */
 fun Json.decodeAssetPage(payload: JsonElement): HaloAssetPage {

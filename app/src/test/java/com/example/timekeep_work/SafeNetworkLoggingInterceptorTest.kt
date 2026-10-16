@@ -11,12 +11,12 @@ class SafeNetworkLoggingInterceptorTest {
     @Test
     fun authenticationHeaderKeepsScopeErrorAndRedactsBearerValue() {
         val sanitized = HaloFailureSanitizer.sanitizeHeader(
-            "Bearer token-value-that-must-be-redacted, error=\"insufficient_scope\", scope=\"edit:assets\"",
+            "Bearer token-value-that-must-be-redacted, error=\"insufficient_scope\", scope=\"edit:tickets\"",
         )
 
         assertFalse(sanitized.contains("token-value-that-must-be-redacted"))
         assertTrue(sanitized.contains("insufficient_scope"))
-        assertTrue(sanitized.contains("edit:assets"))
+        assertTrue(sanitized.contains("edit:tickets"))
     }
 
     @Test
@@ -30,13 +30,14 @@ class SafeNetworkLoggingInterceptorTest {
     }
 
     @Test
-    fun errorBodyRedactsCredentialsAndAssetIdentity() {
+    fun errorBodyRedactsCredentialsAccountAndAssetIdentity() {
         val sanitized = HaloFailureSanitizer.sanitizeBody(
             """
                 {
                   "error": "invalid_token",
                   "error_description": "Cannot update WLT-123 for person@example.com",
                   "access_token": "eyJhbGciOiJIUzI1NiJ9.payload.signature",
+                  "account_number": "ACCOUNT-42",
                   "serial_number": "SERIAL-123"
                 }
             """.trimIndent(),
@@ -46,6 +47,7 @@ class SafeNetworkLoggingInterceptorTest {
         assertFalse(sanitized.contains("WLT-123"))
         assertFalse(sanitized.contains("person@example.com"))
         assertFalse(sanitized.contains("eyJhbGciOiJIUzI1NiJ9"))
+        assertFalse(sanitized.contains("ACCOUNT-42"))
         assertFalse(sanitized.contains("SERIAL-123"))
     }
 

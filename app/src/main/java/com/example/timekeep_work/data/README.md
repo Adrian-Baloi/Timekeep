@@ -29,7 +29,7 @@ Halo key fields are configurable. The mapper uses their returned labels to ident
 
 The OpenAPI operation does not name its scope, but the DEV tenant OAuth discovery metadata advertises `read:assets`. The authorization request includes that scope, and the DEV API application's Permissions tab must also allow it. The technician's effective Halo role remains an additional restriction. Re-check this contract after Halo upgrades.
 
-The production user, site, and minimal asset-write contract was separately verified on 2026-08-11. See `docs/halo-asset-management.md` for the exact request shapes, scope configuration, and the no-extra-fetch limitation.
+The user, site, and asset-change ticket contract was updated on 2026-09-27. Confirmed changes use `POST /Tickets` with ticket type `79`; the app no longer writes to `POST /Asset`. See `docs/halo-asset-management.md` for the exact request shapes, custom-field mappings, scope configuration, and the no-extra-fetch limitation.
 
 Update only the Retrofit DTOs and mappers when the tenant schema differs. Compose must continue to receive app models through `AssetRepository`.
 

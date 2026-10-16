@@ -6,12 +6,14 @@ import com.example.timekeep_work.data.HaloAssetRepository
 import com.example.timekeep_work.network.AccessTokenProvider
 import com.example.timekeep_work.network.FreshAccessTokenProvider
 import com.example.timekeep_work.network.HaloApi
-import com.example.timekeep_work.network.dto.HaloAssetUpdateDto
-import com.example.timekeep_work.network.dto.HaloAssetUserUpdateDto
+import com.example.timekeep_work.network.dto.HaloAssetChangeTicketDto
+import com.example.timekeep_work.network.dto.HaloTicketAssetDto
+import com.example.timekeep_work.network.dto.HaloTicketCustomFieldDto
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -119,23 +121,63 @@ class HaloAssetRepositoryTest {
     }
 
     @Test
-    fun `deploy and return send minimal tenant-verified DTOs without fetching the asset`() = runTest {
+    fun `deploy and return create one ticket with a related asset`() = runTest {
         val api = StubHaloApi(updatePayload = payload("""{"id":42}"""))
         val repository = repository(api)
-        val site = AssetSite(7, "Toronto")
+        val site = AssetSite(id = 7, name = "Toronto", clientName = "Newforma", clientId = 12)
         val user = AssignableUser(9, "Maya Chen")
 
         repository.updateAsset(AssetUpdate.Deploy(assetId = 42, site = site, user = user))
+        val deployRequest = requireNotNull(api.lastUpdate)
         assertEquals(
-            listOf(HaloAssetUpdateDto(id = 42, siteId = 7, users = listOf(HaloAssetUserUpdateDto(9)))),
-            api.lastUpdate,
+            listOf(
+                HaloAssetChangeTicketDto(
+                    ticketTypeId = 79,
+                    assetNumber = 42,
+                    assets = listOf(HaloTicketAssetDto(id = 42)),
+                    clientId = 12,
+                    siteId = 7,
+                    customFields = listOf(
+                        HaloTicketCustomFieldDto(id = 564, value = "1"),
+                        HaloTicketCustomFieldDto(id = 289, value = "9"),
+                        HaloTicketCustomFieldDto(id = 404, value = "7"),
+                    ),
+                ),
+            ),
+            deployRequest,
+        )
+        assertEquals(
+            payload(
+                """[{"tickettype_id":79,"asset_number":42,"assets":[{"id":42}],"client_id":12,"site_id":7,"customfields":[{"id":564,"value":"1"},{"id":289,"value":"9"},{"id":404,"value":"7"}]}]""",
+            ),
+            payload(json.encodeToString(deployRequest)),
         )
         assertEquals(0, api.findCallCount)
 
         repository.updateAsset(AssetUpdate.ReturnToInventory(assetId = 42, site = site))
         assertEquals(
-            listOf(HaloAssetUpdateDto(id = 42, siteId = 7, users = emptyList())),
+            listOf(
+                HaloAssetChangeTicketDto(
+                    ticketTypeId = 79,
+                    assetNumber = 42,
+                    assets = listOf(HaloTicketAssetDto(id = 42)),
+                    clientId = 12,
+                    siteId = 7,
+                    customFields = listOf(
+                        HaloTicketCustomFieldDto(id = 564, value = "2"),
+                        HaloTicketCustomFieldDto(id = 404, value = "7"),
+                    ),
+                ),
+            ),
             api.lastUpdate,
+        )
+        val returnRequests = api.lastUpdate.orEmpty()
+        assertTrue(returnRequests.single().customFields.none { it.id == 289 })
+        assertEquals(
+            payload(
+                """[{"tickettype_id":79,"asset_number":42,"assets":[{"id":42}],"client_id":12,"site_id":7,"customfields":[{"id":564,"value":"2"},{"id":404,"value":"7"}]}]""",
+            ),
+            payload(json.encodeToString(returnRequests)),
         )
         assertEquals(0, api.findCallCount)
     }
@@ -180,7 +222,7 @@ class HaloAssetRepositoryTest {
                   "record_count":4,
                   "sites":[
                     {"id":7,"name":"remote | us","inactive":false},
-                    {"id":8,"name":"Boston Office","client_name":"Newforma","inactive":false},
+                    {"id":8,"name":"Boston Office","client_id":"12","client_name":"Newforma","inactive":false},
                     {"id":9,"name":"Toronto Office","inactive":false},
                     {"id":10,"name":"Closed","inactive":true}
                   ]
@@ -192,6 +234,7 @@ class HaloAssetRepositoryTest {
         val sites = repository(api).getActiveSites()
 
         assertEquals(listOf("Boston Office", "Remote | US"), sites.map(AssetSite::name))
+        assertEquals(12, sites.first().clientId)
         assertEquals(false, api.lastIncludeInactiveSites)
     }
 
@@ -332,7 +375,7 @@ class HaloAssetRepositoryTest {
         var lastExcludeAgents: Boolean? = null
         var lastIncludeInactiveUsers: Boolean? = null
         var lastIncludeInactiveSites: Boolean? = null
-        var lastUpdate: List<HaloAssetUpdateDto>? = null
+        var lastUpdate: List<HaloAssetChangeTicketDto>? = null
 
         override suspend fun getCurrentAgent(): JsonElement = JsonPrimitive("unused")
 
@@ -385,7 +428,7 @@ class HaloAssetRepositoryTest {
             return sitePayload
         }
 
-        override suspend fun updateAsset(request: List<HaloAssetUpdateDto>): JsonElement {
+        override suspend fun createAssetChangeTicket(request: List<HaloAssetChangeTicketDto>): JsonElement {
             lastUpdate = request
             return updatePayload
         }
